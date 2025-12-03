@@ -1,9 +1,5 @@
-// server/server.ts
-import 'tsconfig-paths/register';  // ← Phải là dòng đầu tiên!
-
-// ==========================================
-// THÊM 3 DÒNG NÀY ĐỂ LOAD .ENV
-// ==========================================
+// server/server.ts (UPDATED)
+import 'tsconfig-paths/register';
 import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -14,6 +10,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth';
 import audioRoutes from './routes/audio';
 import transcriptRoutes from './routes/transcript';
+import tagRoutes from './routes/tag'; // ✨ NEW
 import { whisperService } from '@services/whisper-service/whisper.service';
 
 const app = express();
@@ -29,7 +26,7 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/myapp'
 mongoose.connect(MONGODB_URI)
   .then(() => {
     console.log('✅ MongoDB connected');
-    console.log('📊 Available collections: User, Audio, Transcript, TranscriptEdit');
+    console.log('📊 Available collections: User, Audio, Transcript, Tag'); // ✨ UPDATED
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
@@ -65,6 +62,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/audio', audioRoutes);
 app.use('/api/transcript', transcriptRoutes);
+app.use('/api/tag', tagRoutes); // ✨ NEW
 
 // API Documentation endpoint
 app.get('/api', (req, res) => {
@@ -84,13 +82,30 @@ app.get('/api', (req, res) => {
         delete: 'DELETE /api/audio/:id'
       },
       transcript: {
-        get: 'GET /api/transcript/audio/:audioId',
+        list: 'GET /api/transcript',
+        get: 'GET /api/transcript/:transcriptId',
+        getByAudio: 'GET /api/transcript/audio/:audioId',
+        updateMetadata: 'PATCH /api/transcript/:transcriptId/metadata',
+        delete: 'DELETE /api/transcript/:transcriptId',
         updateSegment: 'PATCH /api/transcript/:transcriptId/segment/:segmentId',
         highlight: 'PATCH /api/transcript/:transcriptId/segment/:segmentId/highlight',
         getHighlights: 'GET /api/transcript/:transcriptId/highlights',
         export: 'GET /api/transcript/:transcriptId/export/:format',
         search: 'GET /api/transcript/:transcriptId/search?query=',
         history: 'GET /api/transcript/:transcriptId/history'
+      },
+      // ✨ NEW: Tag endpoints
+      tag: {
+        create: 'POST /api/tag',
+        list: 'GET /api/tag',
+        get: 'GET /api/tag/:tagId',
+        update: 'PATCH /api/tag/:tagId',
+        delete: 'DELETE /api/tag/:tagId',
+        addToTranscript: 'POST /api/tag/:tagId/transcripts/:transcriptId',
+        removeFromTranscript: 'DELETE /api/tag/:tagId/transcripts/:transcriptId',
+        getTranscriptsByTag: 'GET /api/tag/:tagId/transcripts',
+        bulkAdd: 'POST /api/tag/bulk/add',
+        bulkRemove: 'POST /api/tag/bulk/remove'
       }
     }
   });
@@ -111,7 +126,7 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: 'Endpoint not found',
-    availableRoutes: ['/api/auth', '/api/audio', '/api/transcript']
+    availableRoutes: ['/api/auth', '/api/audio', '/api/transcript', '/api/tag']
   });
 });
 
@@ -121,6 +136,7 @@ app.listen(PORT, () => {
   console.log(`📝 Auth API: http://localhost:${PORT}/api/auth`);
   console.log(`🎤 Audio API: http://localhost:${PORT}/api/audio`);
   console.log(`📄 Transcript API: http://localhost:${PORT}/api/transcript`);
+  console.log(`🏷️  Tag API: http://localhost:${PORT}/api/tag`); // ✨ NEW
   console.log(`📚 API Docs: http://localhost:${PORT}/api`);
 });
 

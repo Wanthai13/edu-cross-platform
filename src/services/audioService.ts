@@ -6,11 +6,11 @@ import { Platform } from 'react-native';
 const getApiUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
-      return 'http://192.168.1.37:3000/api/audio';
+      return 'http://192.168.1.180:3000/api/audio';
     }
-    return 'http://192.168.1.37:3000/api/audio';
+    return 'http://192.168.1.180:3000/api/audio';
   }
-  return 'https://192.168.1.37:3000/api/audio';
+  return 'https://192.168.1.180:3000/api/audio';
 };
 
 const API_URL = getApiUrl();

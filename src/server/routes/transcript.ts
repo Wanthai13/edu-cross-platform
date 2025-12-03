@@ -1,25 +1,64 @@
-// routes/transcript.ts
+// routes/transcript.ts (FIXED)
 import express from 'express';
 import Transcript from '../models/Transcript';
-import TranscriptEdit from '../models/TranscriptEdit';
 import Audio from '../models/AudioFile';
 import { authMiddleware } from '../middleware/auth';
 import { transcriptExportService } from '@services/transcriptExportService';
 
 const router = express.Router();
 
-// ---------------- GET TRANSCRIPT BY AUDIO ID ----------------
-router.get('/audio/:audioId', authMiddleware, async (req, res) => {
+// ---------------- LIST ALL TRANSCRIPTS ----------------
+router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = (req as any).userId;
     
-    // Verify audio ownership
-    const audio = await Audio.findOne({ _id: req.params.audioId, userId });
-    if (!audio) {
-      return res.status(404).json({ success: false, message: 'Audio not found' });
-    }
+    // ✅ FIX: Populate both audioId AND tags
+    const transcripts = await Transcript.find({ userId })
+      .populate('audioId')
+      .populate('tags') // ✅ ADD THIS
+      .sort({ createdAt: -1 });
 
-    const transcript = await Transcript.findOne({ audioId: audio._id });
+    const items = await Promise.all(
+      transcripts.map(async (transcript) => {
+        const audio = transcript.audioId as any;
+        return {
+          _id: transcript._id,
+          title: audio?.title || audio?.originalName || 'Untitled',
+          fullText: transcript.fullText,
+          duration: audio?.duration,
+          createdAt: transcript.createdAt,
+          updatedAt: transcript.updatedAt, // ✅ ADD updatedAt
+          language: transcript.language,
+          segmentCount: transcript.segments.length,
+          highlightCount: transcript.segments.filter((s: any) => s.isHighlighted).length,
+          isEdited: transcript.segments.some((s: any) => s.isEdited),
+          audioId: audio?._id,
+          tags: transcript.tags || [] // ✅ ADD TAGS to response
+        };
+      })
+    );
+
+    res.json({ success: true, transcripts: items });
+  } catch (error) {
+    console.error('🔴 List transcripts error:', error);
+    res.status(500).json({ success: false, message: 'Failed to list transcripts' });
+  }
+});
+
+// ---------------- GET TRANSCRIPT BY ID ----------------
+router.get('/:transcriptId', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const { transcriptId } = req.params;
+    
+    // ✅ FIX: Populate tags
+    const transcript = await Transcript.findOne({ 
+      _id: transcriptId, 
+      userId 
+    })
+      .populate('audioId')
+      .populate('tags'); // ✅ ADD THIS
+    
     if (!transcript) {
       return res.status(404).json({ success: false, message: 'Transcript not found' });
     }
@@ -31,39 +70,105 @@ router.get('/audio/:audioId', authMiddleware, async (req, res) => {
   }
 });
 
-// ---------------- UPDATE SEGMENT TEXT ----------------
-router.patch('/:transcriptId/segment/:segmentId', authMiddleware, async (req, res) => {
+// ---------------- GET TRANSCRIPT BY AUDIO ID ----------------
+router.get('/audio/:audioId', authMiddleware, async (req, res) => {
   try {
     const userId = (req as any).userId;
-    const { transcriptId, segmentId } = req.params;
-    const { text, note } = req.body;
+    
+    const audio = await Audio.findOne({ _id: req.params.audioId, userId });
+    if (!audio) {
+      return res.status(404).json({ success: false, message: 'Audio not found' });
+    }
+
+    // ✅ FIX: Populate tags
+    const transcript = await Transcript.findOne({ audioId: audio._id })
+      .populate('tags'); // ✅ ADD THIS
+      
+    if (!transcript) {
+      return res.status(404).json({ success: false, message: 'Transcript not found' });
+    }
+
+    res.json({ success: true, transcript });
+  } catch (error) {
+    console.error('🔴 Get transcript error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get transcript' });
+  }
+});
+
+// ---------------- UPDATE TRANSCRIPT METADATA ----------------
+router.patch('/:transcriptId/metadata', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const { transcriptId } = req.params;
+    const { title, description, tags } = req.body;
 
     const transcript = await Transcript.findOne({ _id: transcriptId, userId });
     if (!transcript) {
       return res.status(404).json({ success: false, message: 'Transcript not found' });
     }
 
-    // Find segment
+    // Update audio metadata
+    const audio = await Audio.findById(transcript.audioId);
+    if (audio) {
+      if (title !== undefined) audio.title = title;
+      if (description !== undefined) audio.description = description;
+      if (tags !== undefined) audio.tags = tags;
+      await audio.save();
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Metadata updated successfully',
+      audio 
+    });
+  } catch (error) {
+    console.error('🔴 Update metadata error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update metadata' });
+  }
+});
+
+// ---------------- DELETE TRANSCRIPT ----------------
+router.delete('/:transcriptId', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const { transcriptId } = req.params;
+
+    const transcript = await Transcript.findOne({ _id: transcriptId, userId });
+    if (!transcript) {
+      return res.status(404).json({ success: false, message: 'Transcript not found' });
+    }
+
+    // Optional: Also delete associated audio file
+    // await Audio.findByIdAndDelete(transcript.audioId);
+
+    await Transcript.findByIdAndDelete(transcriptId);
+
+    res.json({ 
+      success: true, 
+      message: 'Transcript deleted successfully'
+    });
+  } catch (error) {
+    console.error('🔴 Delete transcript error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete transcript' });
+  }
+});
+
+// ---------------- UPDATE SEGMENT TEXT ----------------
+router.patch('/:transcriptId/segment/:segmentId', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const { transcriptId, segmentId } = req.params;
+    const { text } = req.body;
+
+    const transcript = await Transcript.findOne({ _id: transcriptId, userId });
+    if (!transcript) {
+      return res.status(404).json({ success: false, message: 'Transcript not found' });
+    }
+
     const segment = transcript.segments.find(s => s.id === Number(segmentId));
     if (!segment) {
       return res.status(404).json({ success: false, message: 'Segment not found' });
     }
-
-    // Save edit history
-    const edit = new TranscriptEdit({
-      transcriptId: transcript._id,
-      userId,
-      segmentId: Number(segmentId),
-      editType: 'text',
-      oldValue: segment.text,
-      newValue: text,
-      timestamp: {
-        start: segment.start,
-        end: segment.end
-      },
-      note
-    });
-    await edit.save();
 
     // Update segment
     if (!segment.isEdited) {
@@ -116,7 +221,6 @@ router.patch('/:transcriptId/segment/:segmentId/highlight', authMiddleware, asyn
       return res.status(404).json({ success: false, message: 'Segment not found' });
     }
 
-    // Update highlight
     segment.isHighlighted = isHighlighted;
     segment.highlightColor = color || 'yellow';
     segment.highlightNote = note;
@@ -173,7 +277,6 @@ router.get('/:transcriptId/export/:format', authMiddleware, async (req, res) => 
       return res.status(404).json({ success: false, message: 'Transcript not found' });
     }
 
-    // Generate export content
     let content: string;
     let contentType: string;
     let filename: string;
@@ -206,7 +309,6 @@ router.get('/:transcriptId/export/:format', authMiddleware, async (req, res) => 
         return res.status(400).json({ success: false, message: 'Invalid format' });
     }
 
-    // Update export tracking
     const formatKey = format as 'srt' | 'vtt' | 'txt' | 'tsv';
     transcript.exportFormats[formatKey] = {
       generated: true,
@@ -214,7 +316,6 @@ router.get('/:transcriptId/export/:format', authMiddleware, async (req, res) => 
     };
     await transcript.save();
 
-    // Send file
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(content);
@@ -241,7 +342,6 @@ router.get('/:transcriptId/search', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Transcript not found' });
     }
 
-    // Search in segments
     const searchTerm = (query as string).toLowerCase();
     const results = transcript.segments.filter(segment => 
       segment.text.toLowerCase().includes(searchTerm)
@@ -269,14 +369,9 @@ router.get('/:transcriptId/history', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Transcript not found' });
     }
 
-    const edits = await TranscriptEdit.find({ transcriptId })
-      .sort({ createdAt: -1 })
-      .limit(50);
-
     res.json({ 
       success: true, 
-      editHistory: transcript.editHistory,
-      recentEdits: edits
+      editHistory: transcript.editHistory
     });
   } catch (error) {
     console.error('🔴 Get history error:', error);

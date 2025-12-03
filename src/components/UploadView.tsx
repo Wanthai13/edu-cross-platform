@@ -1,17 +1,22 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, useWindowDimensions, Alert, Modal } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import { audioService } from '../services/audioService';
 
 type Language = 'en' | 'vi';
 
-const UI_TEXT: Record<Language, any> = {
+const UI_TEXT: Record<string, any> = {
   en: {
     uploadView: {
       title: 'Upload or Record',
       subtitle: 'Upload audio/video or record directly to create learning materials',
-      tabs: { upload: 'Upload', record: 'Record' },
+      tabs: {
+        upload: 'Upload',
+        record: 'Record'
+      },
       dragDrop: 'Drag and drop audio or video here',
       formats: 'MP3, WAV, M4A, MP4, MOV, WebM',
       browse: 'Browse files',
@@ -27,11 +32,17 @@ const UI_TEXT: Record<Language, any> = {
         completed: 'Transcription completed',
         failed: 'Processing failed',
       },
-      record: { listening: 'Recording…', ready: 'Ready to record' },
+      record: {
+        listening: 'Recording…',
+        ready: 'Ready to record',
+        stopped: 'Recording saved'
+      },
       errors: {
         noFile: 'Please select a file first',
         uploadFailed: 'Upload failed',
         notAuthenticated: 'Please login first',
+        permissionDenied: 'Microphone permission denied',
+        recordingFailed: 'Recording failed'
       }
     }
   },
@@ -39,7 +50,10 @@ const UI_TEXT: Record<Language, any> = {
     uploadView: {
       title: 'Tải lên hoặc Ghi âm',
       subtitle: 'Tải lên audio/video hoặc ghi âm trực tiếp để AI chuyển đổi thành văn bản',
-      tabs: { upload: 'Tải lên', record: 'Ghi âm' },
+      tabs: {
+        upload: 'Tải lên',
+        record: 'Ghi âm'
+      },
       dragDrop: 'Kéo thả audio hoặc video vào đây',
       formats: 'MP3, WAV, M4A, MP4, MOV, WebM',
       browse: 'Chọn tệp',
@@ -55,11 +69,17 @@ const UI_TEXT: Record<Language, any> = {
         completed: 'Hoàn thành chuyển đổi',
         failed: 'Xử lý thất bại',
       },
-      record: { listening: 'Đang ghi...', ready: 'Sẵn sàng ghi' },
+      record: {
+        listening: 'Đang ghi...',
+        ready: 'Sẵn sàng ghi',
+        stopped: 'Đã lưu ghi âm'
+      },
       errors: {
         noFile: 'Vui lòng chọn file trước',
         uploadFailed: 'Tải lên thất bại',
         notAuthenticated: 'Vui lòng đăng nhập trước',
+        permissionDenied: 'Quyền truy cập microphone bị từ chối',
+        recordingFailed: 'Ghi âm thất bại'
       }
     }
   }
@@ -101,24 +121,25 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
   const t = UI_TEXT[language];
   const { width, height } = useWindowDimensions();
   const isSmall = width <= 360;
-  
+
   const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
   const [file, setFile] = useState<FileInfo | null>(null);
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [currentAudioId, setCurrentAudioId] = useState<string | null>(null);
-  const [processingDetails, setProcessingDetails] = useState<string>('');
-  
+  const [processingDetails, setProcessingDetails] = useState('');
+
   // Language selection
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('auto');
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [showLanguageModal, setShowLanguageModal] = useState(false);
 
   // Recording states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [hasRecording, setHasRecording] = useState(false);
-  const [audioLevels, setAudioLevels] = useState<number[]>(new Array(15).fill(10));
+  const [audioLevels, setAudioLevels] = useState(new Array(15).fill(10));
+  const [recordingInstance, setRecordingInstance] = useState<Audio.Recording | null>(null);
 
   const timerRef = useRef<any>(null);
   const fileInputRef = useRef<any>(null);
@@ -143,6 +164,9 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
       }
+      if (recordingInstance) {
+        recordingInstance.stopAndUnloadAsync().catch(console.error);
+      }
     };
   }, []);
 
@@ -152,24 +176,103 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleStartRecording = () => {
-    setIsRecording(true);
-    setRecordingTime(0);
-    timerRef.current = setInterval(() => {
-      setRecordingTime((prev: number) => prev + 1);
-    }, 1000);
+  const handleStartRecording = async () => {
+    try {
+      console.log('🎤 Requesting microphone permission...');
+      const permission = await Audio.requestPermissionsAsync();
+      
+      if (permission.status !== 'granted') {
+        Alert.alert(
+          t.uploadView.errors.permissionDenied,
+          'Please enable microphone access in settings.'
+        );
+        return;
+      }
+
+      console.log('🎤 Permission granted, starting recording...');
+
+      // Configure audio mode for recording
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      setRecordingInstance(recording);
+      setIsRecording(true);
+      setRecordingTime(0);
+      setHasRecording(false);
+
+      console.log('🎤 Recording started');
+
+      // Start timer
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev: number) => prev + 1);
+      }, 1000);
+
+    } catch (err: any) {
+      console.error('🔴 Recording error:', err);
+      Alert.alert(
+        t.uploadView.errors.recordingFailed,
+        err.message || 'Could not start recording'
+      );
+    }
   };
 
-  const handleStopRecording = () => {
-    setIsRecording(false);
-    if (timerRef.current) clearInterval(timerRef.current);
-    setHasRecording(true);
-    
-    setFile({
-      name: `Recording_${Date.now()}.wav`,
-      size: recordingTime * 16000,
-      type: 'recording',
-    });
+  const handleStopRecording = async () => {
+    try {
+      if (!recordingInstance) {
+        console.warn('No recording instance');
+        return;
+      }
+
+      console.log('🎤 Stopping recording...');
+
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+
+      setIsRecording(false);
+
+      const uri = recordingInstance.getURI();
+      await recordingInstance.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+
+      console.log('🎤 Recording stopped, URI:', uri);
+
+      if (uri) {
+        const fileName = `Recording_${Date.now()}.mp3`;
+        
+        // Get file size (approximate based on duration and quality)
+        const estimatedSize = recordingTime * 16000; // Rough estimate
+
+        setFile({
+          name: fileName,
+          size: estimatedSize,
+          uri: uri,
+          type: 'recording',
+        });
+        setHasRecording(true);
+        
+        console.log('✅ Recording saved:', fileName);
+      } else {
+        throw new Error('Recording URI is null');
+      }
+
+      setRecordingInstance(null);
+
+    } catch (err: any) {
+      console.error('🔴 Stop recording error:', err);
+      Alert.alert(
+        t.uploadView.errors.recordingFailed,
+        'Could not save recording'
+      );
+    }
   };
 
   const handleBrowseFiles = async () => {
@@ -189,14 +292,14 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
         const name = r.name ?? r.assets?.[0]?.name ?? 'file';
         const size = r.size ?? r.assets?.[0]?.size ?? 0;
         const uri = r.uri ?? r.assets?.[0]?.uri;
-        
+
         if (!uri) {
           Alert.alert('Error', 'Could not get file URI');
           return;
         }
-        
+
         const type = name.match(/\.(mp4|mov|avi|mkv|webm)$/i) ? 'video' : 'audio';
-        
+
         setFile({ name, size, uri, type });
         setError(null);
       }
@@ -211,7 +314,7 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
     if (selectedFile) {
       const type = selectedFile.type.startsWith('video/') ? 'video' : 'audio';
       const uri = URL.createObjectURL(selectedFile);
-      
+
       setFile({
         name: selectedFile.name,
         size: selectedFile.size,
@@ -228,13 +331,8 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
       return;
     }
 
-    if (file.type === 'recording' && !file.uri) {
-      Alert.alert('Recording not implemented', 'Recording feature requires microphone access. Please use file upload for now.');
-      return;
-    }
-
     if (!file.uri) {
-      Alert.alert('No file selected', 'Please select a file first');
+      Alert.alert('No file', 'File URI is missing');
       return;
     }
 
@@ -272,7 +370,7 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
       console.error('🔴 Process error:', err);
       setStatus('failed');
       setError(err.message || 'Processing failed');
-      
+
       if (err.message?.includes('authenticated')) {
         Alert.alert(
           t.uploadView.errors.notAuthenticated,
@@ -294,7 +392,6 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
     pollingRef.current = setInterval(async () => {
       try {
         attempts++;
-
         const result = await audioService.getAudio(audioId);
 
         if (result.audio) {
@@ -310,7 +407,7 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
             clearInterval(pollingRef.current);
             setStatus('completed');
             setProcessingDetails('Transcription completed successfully!');
-            
+
             if (onUploadComplete && transcription) {
               setTimeout(() => {
                 onUploadComplete(audioId, transcription);
@@ -349,16 +446,25 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
     }
   };
 
-  const handleDragOver = (e: any) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave = (e: any) => { e.preventDefault(); setIsDragging(false); };
+  const handleDragOver = (e: any) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: any) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
   const handleDrop = (e: any) => {
     e.preventDefault();
     setIsDragging(false);
+
     const dropped = e?.dataTransfer?.files?.[0];
     if (dropped) {
       const type = dropped.type.startsWith('video/') ? 'video' : 'audio';
       const uri = URL.createObjectURL(dropped);
-      
+
       setFile({
         name: dropped.name,
         size: dropped.size,
@@ -390,33 +496,26 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
             ) : status === 'failed' ? (
               <Ionicons name="close-circle" size={48} color="#ef4444" />
             ) : (
-              <Ionicons name="cloud-upload-outline" size={48} color="#4f46e5" />
+              <Ionicons name="hourglass-outline" size={48} color="#4f46e5" />
             )}
           </View>
-          
-          <Text style={styles.statusTitle}>
-            {t.uploadView.status[status]}
-          </Text>
-          
+
+          <Text style={styles.statusTitle}>{t.uploadView.status[status]}</Text>
+
           {status !== 'failed' && status !== 'completed' && (
             <View style={styles.progressBar}>
-              <View style={[
-                styles.progressFill,
-                {
-                  width: status === 'uploading' ? '30%' :
-                         status === 'pending' ? '50%' :
-                         status === 'processing' ? '80%' : '100%'
-                }
-              ]} />
+              <View style={[styles.progressFill, { width: '60%' }]} />
             </View>
           )}
-          
+
           <Text style={styles.processingDetails}>{processingDetails}</Text>
-          
+
           {currentAudioId && (
-            <Text style={styles.processId}>ID: {currentAudioId.substring(0, 8).toUpperCase()}</Text>
+            <Text style={styles.processId}>
+              ID: {currentAudioId.substring(0, 8).toUpperCase()}
+            </Text>
           )}
-          
+
           {error && (
             <>
               <Text style={styles.errorText}>{error}</Text>
@@ -431,7 +530,7 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, { padding: isSmall ? 12 : 20 }]}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       {Platform.OS === 'web' && React.createElement('input', {
         type: 'file',
         ref: fileInputRef,
@@ -441,12 +540,8 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
       })}
 
       <View style={styles.header}>
-        <Text style={[styles.title, { fontSize: isSmall ? 20 : 24 }]} numberOfLines={2}>
-          {t.uploadView.title}
-        </Text>
-        <Text style={[styles.subtitle, { fontSize: isSmall ? 13 : 16 }]} numberOfLines={3}>
-          {t.uploadView.subtitle}
-        </Text>
+        <Text style={styles.title}>{t.uploadView.title}</Text>
+        <Text style={styles.subtitle}>{t.uploadView.subtitle}</Text>
       </View>
 
       <View style={styles.card}>
@@ -459,6 +554,7 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
               {t.uploadView.tabs.upload}
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             onPress={() => setActiveTab('record')}
             style={[styles.tab, activeTab === 'record' && styles.activeTab]}
@@ -469,127 +565,134 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.cardContent, { padding: isSmall ? 20 : 40, minHeight: Math.max(220, Math.floor(height * 0.35)) }]}>
-          {activeTab === 'upload' ? (
-            <View
-              style={[styles.uploadArea, isDragging && styles.uploadAreaDragging]}
-              // @ts-ignore web-only
+        <View style={styles.cardContent}>
+  {activeTab === 'upload' ? (
+    <View>
+      {!file ? (
+        <>
+          {Platform.OS === 'web' ? (
+            <div
               onDragOver={handleDragOver}
-              // @ts-ignore web-only
               onDragLeave={handleDragLeave}
-              // @ts-ignore web-only
               onDrop={handleDrop}
+              style={{ width: '100%' }}
             >
-              {!file ? (
-                <>
-                  <View style={[styles.uploadIcon, isDragging && styles.uploadIconDragging]}>
-                    <Ionicons name="cloud-upload-outline" size={32} color={isDragging ? '#4f46e5' : '#64748b'} />
-                  </View>
-                  <Text style={[styles.uploadTitle, { fontSize: isSmall ? 16 : 18 }]}>
-                    {t.uploadView.dragDrop}
-                  </Text>
-                  <Text style={[styles.uploadFormats, { fontSize: isSmall ? 12 : 14 }]}>
-                    {t.uploadView.formats}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={handleBrowseFiles}
-                    style={[styles.browseButton, { paddingHorizontal: isSmall ? 16 : 24, paddingVertical: isSmall ? 10 : 12 }]}
-                  >
-                    <Text style={styles.browseButtonText}>{t.uploadView.browse}</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <View style={styles.fileInfo}>
-                  <View style={styles.fileIcon}>
-                    <Ionicons
-                      name={file.type === 'video' ? 'videocam' : 'musical-notes'}
-                      size={32}
-                      color="#10b981"
-                    />
-                  </View>
-                  <Text style={[styles.fileName, { fontSize: isSmall ? 16 : 18 }]} numberOfLines={1}>
-                    {file.name}
-                  </Text>
-                  <Text style={[styles.fileSize, { fontSize: isSmall ? 12 : 14 }]}>
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB • {file.type}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setFile(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    style={styles.cancelButton}
-                  >
-                    <Ionicons name="close" size={14} color="#ef4444" />
-                    <Text style={styles.cancelText}>{t.uploadView.cancel}</Text>
-                  </TouchableOpacity>
+              <View style={[styles.uploadArea, isDragging && styles.uploadAreaDragging]}>
+                <View style={[styles.uploadIcon, isDragging && styles.uploadIconDragging]}>
+                  <Ionicons name="cloud-upload-outline" size={32} color="#64748b" />
                 </View>
-              )}
-            </View>
+                <Text style={styles.uploadTitle}>{t.uploadView.dragDrop}</Text>
+                <Text style={styles.uploadFormats}>{t.uploadView.formats}</Text>
+                <TouchableOpacity onPress={handleBrowseFiles} style={styles.browseButton}>
+                  <Text style={styles.browseButtonText}>{t.uploadView.browse}</Text>
+                </TouchableOpacity>
+              </View>
+            </div>
           ) : (
-            <View style={styles.recordArea}>
-              {!hasRecording ? (
-                <>
-                  <View style={styles.visualizer}>
-                    {audioLevels.map((level, i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.bar,
-                          {
-                            height: isRecording ? level : 10,
-                            backgroundColor: isRecording ? '#6366f1' : '#e2e8f0'
-                          }
-                        ]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={[styles.timer, { fontSize: isSmall ? 40 : 48 }]}>
-                    {formatTime(recordingTime)}
-                  </Text>
-                  <Text style={styles.recordStatus}>
-                    {isRecording ? t.uploadView.record.listening : t.uploadView.record.ready}
-                  </Text>
-                  {!isRecording ? (
-                    <TouchableOpacity onPress={handleStartRecording} style={styles.recordBtn}>
-                      <Ionicons name="mic" size={28} color="white" />
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity onPress={handleStopRecording} style={styles.stopBtn}>
-                      <Ionicons name="stop" size={24} color="white" />
-                    </TouchableOpacity>
-                  )}
-                </>
-              ) : (
-                <View style={styles.fileInfo}>
-                  <View style={[styles.fileIcon, { backgroundColor: '#f3e8ff' }]}>
-                    <Ionicons name="mic" size={32} color="#9333ea" />
-                  </View>
-                  <Text style={styles.fileName}>New Recording</Text>
-                  <Text style={styles.fileSize}>Duration: {formatTime(recordingTime)}</Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setHasRecording(false);
-                      setRecordingTime(0);
-                      setFile(null);
-                    }}
-                    style={styles.cancelButton}
-                  >
-                    <Ionicons name="close" size={14} color="#ef4444" />
-                    <Text style={styles.cancelText}>Record Again</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+            <View style={styles.uploadArea}>
+              <View style={styles.uploadIcon}>
+                <Ionicons name="cloud-upload-outline" size={32} color="#64748b" />
+              </View>
+              <Text style={styles.uploadTitle}>Tap to select audio or video</Text>
+              <Text style={styles.uploadFormats}>{t.uploadView.formats}</Text>
+              <TouchableOpacity onPress={handleBrowseFiles} style={styles.browseButton}>
+                <Text style={styles.browseButtonText}>{t.uploadView.browse}</Text>
+              </TouchableOpacity>
             </View>
           )}
+        </>
+      ) : (
+        <View style={styles.fileInfo}>
+          <View style={styles.fileIcon}>
+            <Ionicons
+              name={file.type === 'video' ? 'videocam' : 'musical-notes'}
+              size={32}
+              color="#10b981"
+            />
+          </View>
+          <Text style={styles.fileName} numberOfLines={2}>
+            {file.name}
+          </Text>
+          <Text style={styles.fileSize}>
+            {(file.size / (1024 * 1024)).toFixed(2)} MB • {file.type}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setFile(null);
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+            style={styles.cancelButton}
+          >
+            <Ionicons name="close-circle" size={16} color="#ef4444" />
+            <Text style={styles.cancelText}>{t.uploadView.cancel}</Text>
+          </TouchableOpacity>
         </View>
+      )}
+    </View>
+  ) : (
+    <View style={styles.recordArea}>
+      {!hasRecording ? (
+        <>
+          <View style={styles.visualizer}>
+            {audioLevels.map((level, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.bar,
+                  {
+                    height: level,
+                    backgroundColor: isRecording ? '#ef4444' : '#cbd5e1',
+                  },
+                ]}
+              />
+            ))}
+          </View>
+
+          <Text style={styles.timer}>{formatTime(recordingTime)}</Text>
+          <Text style={styles.recordStatus}>
+            {isRecording ? t.uploadView.record.listening : t.uploadView.record.ready}
+          </Text>
+
+          {!isRecording ? (
+            <TouchableOpacity onPress={handleStartRecording} style={styles.recordBtn}>
+              <Ionicons name="mic" size={32} color="white" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={handleStopRecording} style={styles.stopBtn}>
+              <Ionicons name="stop" size={32} color="white" />
+            </TouchableOpacity>
+          )}
+        </>
+      ) : (
+        <View style={styles.fileInfo}>
+          <View style={styles.fileIcon}>
+            <Ionicons name="mic" size={32} color="#10b981" />
+          </View>
+          <Text style={styles.fileName}>New Recording</Text>
+          <Text style={styles.fileSize}>Duration: {formatTime(recordingTime)}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              setHasRecording(false);
+              setRecordingTime(0);
+              setFile(null);
+            }}
+            style={styles.cancelButton}
+          >
+            <Ionicons name="refresh" size={16} color="#ef4444" />
+            <Text style={styles.cancelText}>Record Again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  )}
+</View>
 
         {/* Language Selection Section */}
         {file && (
           <View style={styles.languageSection}>
             <Text style={styles.languageLabel}>{t.uploadView.languageLabel}</Text>
             <Text style={styles.languageHint}>{t.uploadView.languageHint}</Text>
-            
+
             <TouchableOpacity
               style={styles.languageButton}
               onPress={() => setShowLanguageModal(true)}
@@ -600,17 +703,12 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
           </View>
         )}
 
-        <View style={[styles.cardFooter, { padding: isSmall ? 16 : 24 }]}>
+        <View style={styles.cardFooter}>
           <TouchableOpacity
             onPress={handleProcess}
-            disabled={!file || isRecording}
-            style={[
-              styles.processButton,
-              (!file || isRecording) && styles.processButtonDisabled,
-              { paddingHorizontal: isSmall ? 16 : 24, paddingVertical: isSmall ? 10 : 12 }
-            ]}
+            style={[styles.processButton, !file && styles.processButtonDisabled]}
+            disabled={!file}
           >
-            <Ionicons name="sparkles" size={18} color="white" style={{ marginRight: 8 }} />
             <Text style={styles.processButtonText}>{t.uploadView.button}</Text>
           </TouchableOpacity>
         </View>
@@ -619,11 +717,11 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
       {/* Language Selection Modal */}
       <Modal
         visible={showLanguageModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowLanguageModal(false)}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowLanguageModal(false)}
@@ -635,22 +733,24 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
-            
-            <ScrollView style={styles.languageModalList} showsVerticalScrollIndicator={true}>
+
+            <ScrollView style={styles.languageModalList}>
               {SUPPORTED_LANGUAGES.map((lang) => (
                 <TouchableOpacity
                   key={lang.code}
                   style={[
                     styles.languageOption,
-                    selectedLanguage === lang.code && styles.languageOptionSelected
+                    selectedLanguage === lang.code && styles.languageOptionSelected,
                   ]}
                   onPress={() => handleLanguageSelect(lang.code)}
                 >
                   <Text style={styles.languageFlag}>{lang.flag}</Text>
-                  <Text style={[
-                    styles.languageOptionText,
-                    selectedLanguage === lang.code && styles.languageOptionTextSelected
-                  ]}>
+                  <Text
+                    style={[
+                      styles.languageOptionText,
+                      selectedLanguage === lang.code && styles.languageOptionTextSelected,
+                    ]}
+                  >
                     {lang.name}
                   </Text>
                   {selectedLanguage === lang.code && (
@@ -667,42 +767,226 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  contentContainer: { padding: 20, paddingBottom: 40 },
-  centerContainer: { flex: 1, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  header: { alignItems: 'center', marginBottom: 30 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 8, textAlign: 'center' },
-  subtitle: { fontSize: 16, color: '#64748b', textAlign: 'center', maxWidth: 400, lineHeight: 22 },
-  card: { backgroundColor: 'white', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  tab: { flex: 1, paddingVertical: 16, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  activeTab: { backgroundColor: '#eff6ff', borderBottomColor: '#4f46e5' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  activeTabText: { color: '#4f46e5' },
-  cardContent: { padding: 40, minHeight: 250, alignItems: 'center', justifyContent: 'center' },
-  uploadArea: { alignItems: 'center', justifyContent: 'center', width: '100%', height: 250, padding: 16, borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 16, borderStyle: 'dashed' },
-  uploadAreaDragging: { borderColor: '#4f46e5', backgroundColor: '#eff6ff' },
-  uploadIcon: { width: 56, height: 56, backgroundColor: '#f1f5f9', borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  uploadIconDragging: { backgroundColor: '#e0e7ff' },
-  uploadTitle: { fontSize: 18, fontWeight: 'bold', color: '#334155', marginBottom: 6, textAlign: 'center' },
-  uploadFormats: { fontSize: 14, color: '#94a3b8', marginBottom: 20, textAlign: 'center' },
-  browseButton: { backgroundColor: '#4f46e5', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, shadowColor: '#4f46e5', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
-  browseButtonText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  fileInfo: { alignItems: 'center' },
-  fileIcon: { width: 64, height: 64, backgroundColor: '#ecfdf5', borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  fileName: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 4, maxWidth: 280 },
-  fileSize: { fontSize: 14, color: '#64748b', marginBottom: 20 },
-  cancelButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  cancelText: { color: '#ef4444', fontWeight: '600', fontSize: 12, marginLeft: 4 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f8fafc' 
+  },
+  contentContainer: { 
+    padding: 20, 
+    paddingBottom: 40 
+  },
+  centerContainer: { 
+    flex: 1, 
+    backgroundColor: '#f8fafc', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    padding: 20 
+  },
+  header: { 
+    alignItems: 'center', 
+    marginBottom: 30 
+  },
+  title: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    color: '#1e293b', 
+    marginBottom: 8, 
+    textAlign: 'center' 
+  },
+  subtitle: { 
+    fontSize: 16, 
+    color: '#64748b', 
+    textAlign: 'center', 
+    maxWidth: 400, 
+    lineHeight: 22 
+  },
+  card: { 
+    backgroundColor: 'white', 
+    borderRadius: 16, 
+    borderWidth: 1, 
+    borderColor: '#e2e8f0', 
+    overflow: 'hidden', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 3 }, 
+    shadowOpacity: 0.04, 
+    shadowRadius: 8, 
+    elevation: 2 
+  },
+  tabs: { 
+    flexDirection: 'row', 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#f1f5f9' 
+  },
+  tab: { 
+    flex: 1, 
+    paddingVertical: 16, 
+    alignItems: 'center', 
+    borderBottomWidth: 2, 
+    borderBottomColor: 'transparent' 
+  },
+  activeTab: { 
+    backgroundColor: '#eff6ff', 
+    borderBottomColor: '#4f46e5' 
+  },
+  tabText: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#64748b' 
+  },
+  activeTabText: { 
+    color: '#4f46e5' 
+  },
+  cardContent: { 
+    padding: 40, 
+    minHeight: 250, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  uploadArea: { 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    width: '100%', 
+    height: 250, 
+    padding: 16, 
+    borderWidth: 2, 
+    borderColor: '#e2e8f0', 
+    borderRadius: 16, 
+    borderStyle: 'dashed' 
+  },
+  uploadAreaDragging: { 
+    borderColor: '#4f46e5', 
+    backgroundColor: '#eff6ff' 
+  },
+  uploadIcon: { 
+    width: 56, 
+    height: 56, 
+    backgroundColor: '#f1f5f9', 
+    borderRadius: 28, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginBottom: 16 
+  },
+  uploadIconDragging: { 
+    backgroundColor: '#e0e7ff' 
+  },
+  uploadTitle: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: '#334155', 
+    marginBottom: 6, 
+    textAlign: 'center' 
+  },
+  uploadFormats: { 
+    fontSize: 14, 
+    color: '#94a3b8', 
+    marginBottom: 20, 
+    textAlign: 'center' 
+  },
+  browseButton: { 
+    backgroundColor: '#4f46e5', 
+    paddingHorizontal: 24, 
+    paddingVertical: 12, 
+    borderRadius: 12, 
+    shadowColor: '#4f46e5', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.2, 
+    shadowRadius: 4 
+  },
+  browseButtonText: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 14 
+  },
+  fileInfo: { 
+    alignItems: 'center' 
+  },
+  fileIcon: { 
+    width: 64, 
+    height: 64, 
+    backgroundColor: '#ecfdf5', 
+    borderRadius: 32, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginBottom: 16 
+  },
+  fileName: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: '#1e293b', 
+    marginBottom: 4, 
+    maxWidth: 280,
+    textAlign: 'center'
+  },
+  fileSize: { 
+    fontSize: 14, 
+    color: '#64748b', 
+    marginBottom: 20 
+  },
+  cancelButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#fef2f2', 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 8 
+  },
+  cancelText: { 
+    color: '#ef4444', 
+    fontWeight: '600', 
+    fontSize: 12, 
+    marginLeft: 4 
+  },
   
   // Recording styles
-  recordArea: { alignItems: 'center', width: '100%' },
-  visualizer: { flexDirection: 'row', alignItems: 'flex-end', height: 60, marginBottom: 20 },
-  bar: { width: 6, borderRadius: 3, marginHorizontal: 2 },
-  timer: { fontSize: 48, fontWeight: 'bold', color: '#1e293b', marginBottom: 8 },
-  recordStatus: { fontSize: 13, fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 24 },
-  recordBtn: { width: 72, height: 72, backgroundColor: '#ef4444', borderRadius: 36, alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  stopBtn: { width: 72, height: 72, backgroundColor: '#1e293b', borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+  recordArea: { 
+    alignItems: 'center', 
+    width: '100%' 
+  },
+  visualizer: { 
+    flexDirection: 'row', 
+    alignItems: 'flex-end', 
+    height: 60, 
+    marginBottom: 20 
+  },
+  bar: { 
+    width: 6, 
+    borderRadius: 3, 
+    marginHorizontal: 2 
+  },
+  timer: { 
+    fontSize: 48, 
+    fontWeight: 'bold', 
+    color: '#1e293b', 
+    marginBottom: 8 
+  },
+  recordStatus: { 
+    fontSize: 13, 
+    fontWeight: 'bold', 
+    color: '#94a3b8', 
+    textTransform: 'uppercase', 
+    letterSpacing: 1, 
+    marginBottom: 24 
+  },
+  recordBtn: { 
+    width: 72, 
+    height: 72, 
+    backgroundColor: '#ef4444', 
+    borderRadius: 36, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    shadowColor: '#ef4444', 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.3, 
+    shadowRadius: 8 
+  },
+  stopBtn: { 
+    width: 72, 
+    height: 72, 
+    backgroundColor: '#1e293b', 
+    borderRadius: 36, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
   
   // Language selection styles
   languageSection: { 
@@ -723,10 +1007,6 @@ const styles = StyleSheet.create({
     fontSize: 12, 
     color: '#94a3b8', 
     marginBottom: 12 
-  },
-  languageSelector: { 
-    position: 'relative',
-    zIndex: 1000
   },
   languageButton: { 
     flexDirection: 'row', 
@@ -749,26 +1029,6 @@ const styles = StyleSheet.create({
     color: '#1e293b', 
     fontWeight: '500',
     flex: 1
-  },
-  languageDropdown: { 
-    position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
-    backgroundColor: 'white', 
-    borderWidth: 1, 
-    borderColor: '#e2e8f0', 
-    borderRadius: 12, 
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-    maxHeight: 300,
-    overflow: 'hidden'
-  },
-  languageList: { 
-    maxHeight: 300
   },
   languageOption: { 
     flexDirection: 'row', 
@@ -795,51 +1055,47 @@ const styles = StyleSheet.create({
     fontWeight: '600' 
   },
 
+  // Modal styles
   modalOverlay: {
-  flex: 1,
-  backgroundColor: 'rgba(2,6,23,0.45)', // semi-transparent dark overlay
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 20,
-},
-
-languageModalContent: {
-  width: '100%',
-  maxWidth: 520,
-  backgroundColor: 'white',
-  borderRadius: 16,
-  overflow: 'hidden',
-  // subtle shadow (iOS) + elevation (Android)
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.12,
-  shadowRadius: 24,
-  elevation: 10,
-},
-
-languageModalHeader: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingHorizontal: 16,
-  paddingVertical: 12,
-  borderBottomWidth: 1,
-  borderBottomColor: '#f1f5f9',
-  backgroundColor: '#fff',
-},
-
-languageModalTitle: {
-  fontSize: 16,
-  fontWeight: '700',
-  color: '#111827',
-},
-
-languageModalList: {
-  maxHeight: 320,
-  paddingHorizontal: 8,
-  paddingVertical: 4,
-  backgroundColor: 'white',
-},
+    flex: 1,
+    backgroundColor: 'rgba(2,6,23,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  languageModalContent: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  languageModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    backgroundColor: '#fff',
+  },
+  languageModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  languageModalList: {
+    maxHeight: 320,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'white',
+  },
   
   // Footer styles
   cardFooter: { 

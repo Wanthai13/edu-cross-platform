@@ -1,5 +1,5 @@
 // routes/audio.ts
-import 'tsconfig-paths/register';  // ← Phải là dòng đầu tiên!
+import 'tsconfig-paths/register';  
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -29,7 +29,7 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
-      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm',
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/m4a',
       'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'
     ];
     

@@ -3,21 +3,19 @@ import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import {
-  HomeScreen,
-  DashboardScreen,
-  TranscriptListScreen,
-  TranscriptDetailScreen,
-  FlashcardScreen,
-  QuizScreen,
-  ChatbotScreen,
-} from './screens';
-
-import BottomTabs from './navigation/BottomTabs';
+// Import screens
+import HomeScreen from './screens/HomeScreen';
+import DashboardScreen from './screens/DashboardScreen';
+import TranscriptListScreen from './screens/TranscriptListScreen';
+import TranscriptDetailScreen from './screens/TranscriptDetailScreen';
+import ChatbotScreen from './screens/ChatbotScreen';
 import UploadScreen from './screens/UploadScreen';
-import DebugScreen from './screens/DebugScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
+import TaggedTranscriptsScreen from './screens/TaggedTranscriptsScreen';
+import UntaggedTranscriptsScreen from './screens/UntaggedTranscriptsScreen';
+
+import BottomTabs from './navigation/BottomTabs';
 import { useAuth } from './components/AuthContext';
 
 export type RootStackParamList = {
@@ -36,6 +34,10 @@ export type RootStackParamList = {
   Flashcards: { id: string; title?: string };
   Quiz: { id: string; title?: string };
   Chatbot: { id: string; title?: string };
+  
+  // Tag screens
+  TaggedTranscripts: { tagId: string; tagName: string; tagColor: string };
+  UntaggedTranscripts: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,7 +57,16 @@ function AppStack() {
   return (
     <Stack.Navigator
       initialRouteName="Main"
-      screenOptions={{ headerShown: true }}
+      screenOptions={{
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: '#3b82f6',
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: '600',
+        },
+      }}
     >
       {/* Bottom Tabs */}
       <Stack.Screen
@@ -64,51 +75,62 @@ function AppStack() {
         options={{ headerShown: false }}
       />
 
-      {/* Screens outside Tabs */}
+      {/* Dashboard */}
       <Stack.Screen
         name="Dashboard"
         component={DashboardScreen}
         options={{ title: 'Dashboard' }}
       />
+
+      {/* Home */}
       <Stack.Screen
         name="Home"
         component={HomeScreen}
         options={{ title: 'AI Learning Review' }}
       />
+
+      {/* Upload */}
       <Stack.Screen
         name="Upload"
         component={UploadScreen}
-        options={{ title: 'Upload' }}
+        options={{ title: 'Upload Audio' }}
       />
-      <Stack.Screen
-        name="Debug"
-        component={DebugScreen}
-        options={{ title: 'Debug' }}
-      />
+
+      {/* Transcripts List */}
       <Stack.Screen
         name="Transcripts"
         component={TranscriptListScreen}
-        options={{ title: 'Sessions' }}
+        options={{ title: 'Transcripts' }}
       />
+
+      {/* Transcript Detail */}
       <Stack.Screen
         name="TranscriptDetail"
         component={TranscriptDetailScreen}
-        options={{ title: 'Session' }}
+        options={{ title: 'Chi tiết Transcript' }}
       />
-      <Stack.Screen
-        name="Flashcards"
-        component={FlashcardScreen}
-        options={{ title: 'Flashcards' }}
-      />
-      <Stack.Screen
-        name="Quiz"
-        component={QuizScreen}
-        options={{ title: 'Quiz' }}
-      />
+
+      {/* Chatbot */}
       <Stack.Screen
         name="Chatbot"
         component={ChatbotScreen}
-        options={{ title: 'Chat with AI' }}
+        options={({ route }) => ({
+          title: route.params?.title || 'Chat with AI',
+        })}
+      />
+
+      {/* Tagged Transcripts */}
+      <Stack.Screen
+        name="TaggedTranscripts"
+        component={TaggedTranscriptsScreen}
+        options={{ title: 'Transcripts' }}
+      />
+
+      {/* Untagged Transcripts */}
+      <Stack.Screen
+        name="UntaggedTranscripts"
+        component={UntaggedTranscriptsScreen}
+        options={{ title: 'Chưa phân loại' }}
       />
     </Stack.Navigator>
   );
@@ -121,7 +143,7 @@ export default function AppNavigator() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     );
   }

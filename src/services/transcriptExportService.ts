@@ -71,18 +71,6 @@ class TranscriptExportService {
       txt += `\n`;
     });
 
-    // Keywords
-    if (transcript.keywords && transcript.keywords.length > 0) {
-      txt += `${'='.repeat(50)}\n\n`;
-      txt += `Keywords:\n`;
-      transcript.keywords
-        .sort((a, b) => b.frequency - a.frequency)
-        .slice(0, 20)
-        .forEach(keyword => {
-          txt += `- ${keyword.word} (${keyword.frequency}x)\n`;
-        });
-    }
-
     return txt;
   }
 

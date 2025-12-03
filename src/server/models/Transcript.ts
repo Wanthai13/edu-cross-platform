@@ -1,5 +1,6 @@
-// models/Transcript.ts
+// models/Transcript.ts (UPDATED - FULL VERSION)
 import mongoose from 'mongoose';
+import Tag from './Tag';
 
 export interface ISegment {
   id: number;
@@ -33,6 +34,8 @@ export interface ITranscript extends mongoose.Document {
   // Segments with timestamps
   segments: ISegment[];
   
+  // ✨ NEW: Tags reference
+  tags: mongoose.Types.ObjectId[]; // Array of Tag IDs
   
   // Export formats tracking
   exportFormats: {
@@ -103,6 +106,13 @@ const TranscriptSchema = new mongoose.Schema<ITranscript>({
   
   segments: [SegmentSchema],
   
+  // ✨ NEW: Tags
+  tags: [{ 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Tag',
+    default: [] // Default empty array
+  }],
+  
   exportFormats: {
     srt: {
       generated: { type: Boolean, default: false },
@@ -134,16 +144,93 @@ const TranscriptSchema = new mongoose.Schema<ITranscript>({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Indexes - FIX: Không dùng text index để tránh lỗi language override
+// ============================================
+// INDEXES
+// ============================================
 TranscriptSchema.index({ audioId: 1 });
 TranscriptSchema.index({ userId: 1 });
-TranscriptSchema.index({ 'keywords.word': 1 }); // Dùng regular index thay vì text index
-TranscriptSchema.index({ createdAt: -1 }); // Để sort theo thời gian
+TranscriptSchema.index({ tags: 1 }); // ✨ NEW: Index for tag queries
+TranscriptSchema.index({ userId: 1, tags: 1 }); // ✨ NEW: Compound index for filtering by user + tag
+TranscriptSchema.index({ createdAt: -1 }); // Sort by creation time
 
 // IMPORTANT: Nếu muốn full-text search, dùng index này với language: 'none'
 // TranscriptSchema.index(
 //   { fullText: 'text', 'segments.text': 'text' },
 //   { default_language: 'none' }  // Không dùng language-specific stemming
 // );
+
+// ============================================
+// MIDDLEWARE / HOOKS
+// ============================================
+
+// ✨ NEW: Update tag counts when transcript is deleted
+TranscriptSchema.pre('deleteOne', { document: true, query: false }, async function(next) {
+  try {
+    if (this.tags && this.tags.length > 0) {
+      // Decrease transcript count for all tags
+      await Tag.updateMany(
+        { _id: { $in: this.tags } },
+        { $inc: { transcriptCount: -1 } }
+      );
+    }
+    next();
+  } catch (error) {
+    next(error as any);
+  }
+});
+
+// ✨ NEW: Update tag counts when using findByIdAndDelete
+TranscriptSchema.pre('findOneAndDelete', async function(next) {
+  try {
+    const doc = await this.model.findOne(this.getQuery());
+    if (doc && doc.tags && doc.tags.length > 0) {
+      await Tag.updateMany(
+        { _id: { $in: doc.tags } },
+        { $inc: { transcriptCount: -1 } }
+      );
+    }
+    next();
+  } catch (error) {
+    next(error as any);
+  }
+});
+
+// ✨ NEW: Update updatedAt on save
+TranscriptSchema.pre('save', function(next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+// ============================================
+// METHODS
+// ============================================
+
+// ✨ NEW: Instance method to add tag
+TranscriptSchema.methods.addTag = async function(tagId: mongoose.Types.ObjectId) {
+  if (!this.tags.includes(tagId)) {
+    this.tags.push(tagId);
+    await this.save();
+    
+    // Increment tag count
+    await Tag.findByIdAndUpdate(tagId, { $inc: { transcriptCount: 1 } });
+  }
+};
+
+// ✨ NEW: Instance method to remove tag
+TranscriptSchema.methods.removeTag = async function(tagId: mongoose.Types.ObjectId) {
+  const index = this.tags.findIndex((id: { toString: () => string; }) => id.toString() === tagId.toString());
+  if (index > -1) {
+    this.tags.splice(index, 1);
+    await this.save();
+    
+    // Decrement tag count
+    await Tag.findByIdAndUpdate(tagId, { $inc: { transcriptCount: -1 } });
+  }
+};
+
+// ✨ NEW: Instance method to check if has tag
+TranscriptSchema.methods.hasTag = function(tagId: mongoose.Types.ObjectId): boolean {
+  return this.tags.some((id: { toString: () => string; }) => id.toString() === tagId.toString());
+};
 
 export default mongoose.model<ITranscript>('Transcript', TranscriptSchema);

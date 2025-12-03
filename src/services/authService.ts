@@ -2,14 +2,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// ✅ FIX: Dùng IP thực thay vì localhost
 const getApiUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
-      return 'http://192.168.1.37:3000/api/auth'; // Android emulator
+      return 'http://192.168.1.180:3000/api/auth';
     }
-    // iOS simulator hoặc thiết bị thật - THAY ĐỔI IP NÀY!
-    return 'http://192.168.1.37:3000/api/auth'; // ⚠️ Thay bằng IP máy của bạn
+    return 'http://192.168.1.180:3000/api/auth';
   }
   return 'https://your-production-api.com/api/auth';
 };
@@ -26,6 +24,13 @@ interface RegisterRequest {
   email: string;
   password: string;
   role?: 'student' | 'employee' | 'disabled' | 'admin';
+}
+
+interface UpdateProfileRequest {
+  username: string;
+  email: string;
+  currentPassword?: string;
+  newPassword?: string;
 }
 
 class AuthService {
@@ -95,6 +100,44 @@ class AuthService {
     }
   }
 
+  async updateProfile(data: UpdateProfileRequest) {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        return { success: false, message: 'No authentication token' };
+      }
+
+      console.log('🔵 Update profile attempt:', { username: data.username, email: data.email });
+
+      const response = await fetch(`${API_URL}/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+
+      console.log('🔵 Response status:', response.status);
+
+      const responseData = await response.json();
+      console.log('🔵 Response data:', responseData);
+
+      if (responseData.success && responseData.user) {
+        await AsyncStorage.setItem('user', JSON.stringify(responseData.user));
+        return { success: true, user: responseData.user };
+      }
+
+      return { success: false, message: responseData.message || 'Update failed' };
+    } catch (error) {
+      console.error('🔴 Update profile error:', error);
+      return { 
+        success: false, 
+        message: `Network error: ${error instanceof Error ? error.message : 'Cannot connect to server'}` 
+      };
+    }
+  }
+
   async verifyToken(): Promise<boolean> {
     try {
       const token = await AsyncStorage.getItem('token');
@@ -117,7 +160,6 @@ class AuthService {
 
       if (!response.ok) {
         console.log('🔴 Token invalid or expired');
-        // Xóa token cũ nếu không hợp lệ
         await this.logout();
         return false;
       }
@@ -152,13 +194,12 @@ class AuthService {
     }
   }
 
-  // ✅ Thêm method test connection
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
       console.log('🔵 Testing connection to:', API_URL);
       
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(`${API_URL}/me`, {
         method: 'GET',

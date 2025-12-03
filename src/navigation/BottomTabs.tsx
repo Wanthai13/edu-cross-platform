@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import DashboardScreen from '../screens/DashboardScreen';
 import TranscriptListScreen from '../screens/TranscriptListScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../AppNavigator';
 
@@ -11,6 +12,7 @@ type BottomTabParamList = {
   Dashboard: undefined;
   Upload: undefined;
   Sessions: undefined;
+  Profile: undefined;
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
@@ -22,7 +24,6 @@ function EmptyPlaceholder() {
 function UploadTabButton() {
   const nav = useNavigation<NavigationProp<RootStackParamList | Record<string, any>>>();
   const handlePress = () => {
-    // Try to navigate on parent (stack) so Upload route can be in the root stack
     const parent = nav.getParent && nav.getParent();
     try {
       const navigator = (parent || nav) as NavigationProp<RootStackParamList>;
@@ -50,14 +51,20 @@ export default function BottomTabs() {
         headerShown: false,
         tabBarShowLabel: true,
         tabBarStyle: styles.tabBar,
+        tabBarActiveTintColor: '#5B46FF',
+        tabBarInactiveTintColor: '#9CA3AF',
       }}
     >
+
+
       <Tab.Screen
-        name="Dashboard"
-        component={DashboardScreen} // use component so props are inferred from BottomTabParamList
+        name="Sessions"
+        component={TranscriptListScreen as unknown as React.ComponentType<any>}
         options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => <MaterialCommunityIcons name="view-dashboard-outline" size={size} color={color} />,
+          title: 'Sessions',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="list-outline" size={size} color={color} />
+          ),
         }}
       />
 
@@ -71,13 +78,15 @@ export default function BottomTabs() {
       />
 
       <Tab.Screen
-        name="Sessions"
-        component={TranscriptListScreen as unknown as React.ComponentType<any>}
+        name="Profile"
+        component={ProfileScreen}
         options={{
-          title: 'Sessions',
-          tabBarIcon: ({ color, size }) => <Ionicons name="list-outline" size={size} color={color} />,
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-outline" size={size} color={color} />
+          ),
         }}
-        />
+      />
     </Tab.Navigator>
   );
 }
