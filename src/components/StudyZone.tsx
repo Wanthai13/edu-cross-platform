@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../theme/colors';
 import FlashcardDeck from './FlashcardDeck';
 import QuizQuestion from './QuizQuestion';
@@ -19,11 +20,15 @@ type StudyMaterials = {
   flashcards: Flashcard[];
   quizzes: Quiz[];
 };
-import { Ionicons } from '@expo/vector-icons';
 
-type Props = { materials: StudyMaterials | null };
+type Analysis = {
+  summary?: string | null;
+  insights?: { overallScore: number; agendaCoverage: number; agendaExplanation: string } | null;
+};
 
-export default function StudyZone({ materials }: Props) {
+type Props = { materials: StudyMaterials | null; fallbackUsed?: boolean } & Analysis;
+
+export default function StudyZone({ materials, fallbackUsed, summary, insights }: Props) {
   const [activeTab, setActiveTab] = useState<'flashcards' | 'quiz'>('flashcards');
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
 
@@ -40,6 +45,38 @@ export default function StudyZone({ materials }: Props) {
 
   return (
     <View style={styles.root}>
+      {materials ? (
+        <View style={styles.headerRow}>
+          <Text style={styles.headerText}>Flashcards: {materials.flashcards?.length || 0} • Quiz: {materials.quizzes?.length || 0}</Text>
+          {fallbackUsed ? (
+            <Text style={styles.bannerText}>Đang dùng chế độ dự phòng (hết quota AI)</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {(summary || insights) ? (
+        <View style={styles.analysisBox}>
+          {insights ? (
+            <View style={styles.scoreRow}>
+              {(() => {
+                const overall = Number.isFinite(insights?.overallScore) ? Math.round(insights!.overallScore) : 0;
+                const coverage = Number.isFinite(insights?.agendaCoverage) ? Math.round(insights!.agendaCoverage) : 0;
+                return (
+                  <>
+                    <Text style={styles.scoreBadge}>Điểm tổng quan: {overall}</Text>
+                    <Text style={styles.scoreBadge}>Bao phủ agenda: {coverage}%</Text>
+                  </>
+                );
+              })()}
+            </View>
+          ) : null}
+          {summary ? (
+            <ScrollView style={styles.summaryBox} contentContainerStyle={{ paddingBottom: 8 }}>
+              <Text style={styles.summaryText}>{summary}</Text>
+            </ScrollView>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.tabRow}>
         <TouchableOpacity
           onPress={() => setActiveTab('flashcards')}
@@ -58,13 +95,21 @@ export default function StudyZone({ materials }: Props) {
 
       {activeTab === 'flashcards' && (
         <View style={styles.flexFill}>
-          <FlashcardDeck cards={materials.flashcards} />
+          {materials.flashcards && materials.flashcards.length > 0 ? (
+            <FlashcardDeck cards={materials.flashcards} />
+          ) : (
+            <View style={styles.emptyRoot}>
+              <Text style={styles.emptyText}>Chưa có flashcards cho nội dung này.</Text>
+            </View>
+          )}
         </View>
       )}
 
       {activeTab === 'quiz' && (
         <ScrollView contentContainerStyle={styles.quizList}>
-          {materials.quizzes.map((q, idx) => {
+          {(!materials.quizzes || materials.quizzes.length === 0) ? (
+            <View style={styles.emptyRoot}><Text style={styles.emptyText}>Chưa có câu hỏi quiz.</Text></View>
+          ) : materials.quizzes.map((q, idx) => {
             const userAnswer = quizAnswers[q.id];
             const isAnswered = userAnswer !== undefined;
 
@@ -102,6 +147,14 @@ export default function StudyZone({ materials }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, width: '100%' },
+  headerRow: { paddingHorizontal: 12, paddingTop: 8 },
+  headerText: { color: COLORS.textMuted, fontWeight: '600' },
+  bannerText: { marginTop: 4, color: COLORS.primary },
+  analysisBox: { marginHorizontal: 12, marginTop: 10, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#eee', padding: 12 },
+  scoreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  scoreBadge: { backgroundColor: '#eef2ff', color: COLORS.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, fontWeight: '700', marginRight: 8 },
+  summaryBox: { maxHeight: 160 },
+  summaryText: { color: COLORS.textMain },
   flexFill: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   emptyRoot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: COLORS.textMuted },

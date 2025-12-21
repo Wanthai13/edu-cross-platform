@@ -9,24 +9,31 @@ import {
   RefreshControl,
   Alert
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { tagServiceClient } from '../services/tagService';
 import { TranscriptItem } from '../services/transcriptService';
 import TranscriptCard from '../components/TranscriptCard';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../AppNavigator';
 import { useFocusEffect } from '@react-navigation/native';
+import { transcriptEvents } from '../utils/transcriptEvents';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TaggedTranscripts'>;
 
 export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
   const { tagId, tagName, tagColor } = route.params;
+  const { colors, isDark } = useTheme();
+  const { language } = useLanguage();
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  const loadTranscripts = async (isRefresh = false, pageNum = 1) => {
+  const loadTranscripts = useCallback(async (isRefresh = false, pageNum = 1) => {
     try {
       if (isRefresh) {
         setRefreshing(true);
@@ -50,12 +57,15 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
       setPage(pageNum);
     } catch (error: any) {
       console.error('🔴 Error loading transcripts:', error);
-      Alert.alert('Lỗi', error.message || 'Không thể tải transcripts');
+      Alert.alert(
+        language === 'vi' ? 'Lỗi' : 'Error', 
+        error.message || (language === 'vi' ? 'Không thể tải transcripts' : 'Failed to load transcripts')
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [tagId, language]);
 
   useEffect(() => {
     loadTranscripts();
@@ -63,9 +73,24 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      console.log('🔵 TaggedTranscripts: Screen focused, reloading...');
       loadTranscripts(true);
-    }, [tagId])
+    }, [loadTranscripts])
   );
+
+  // Subscribe to transcript events to refresh when new transcript is created
+  useEffect(() => {
+    console.log('📢 TaggedTranscripts: Subscribing to transcript events');
+    const unsubscribe = transcriptEvents.subscribe(() => {
+      console.log('📢 TaggedTranscripts: Received transcript update event, refreshing...');
+      loadTranscripts(true);
+    });
+    console.log('📢 TaggedTranscripts: Subscribed, total listeners:', transcriptEvents.listenerCount);
+    return () => {
+      console.log('📢 TaggedTranscripts: Unsubscribing');
+      unsubscribe();
+    };
+  }, [loadTranscripts]);
 
   const onRefresh = () => {
     loadTranscripts(true);
@@ -78,6 +103,11 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
   };
 
   const handleDelete = () => {
+    loadTranscripts(true);
+  };
+
+  const handleTagsUpdated = () => {
+    console.log('🔵 Tags updated, reloading tagged transcripts...');
     loadTranscripts(true);
   };
 
@@ -94,21 +124,29 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
 
   if (loading && page === 1) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={tagColor} />
-        <Text style={styles.loadingText}>Đang tải...</Text>
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+          {language === 'vi' ? 'Đang tải...' : 'Loading...'}
+        </Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {items.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.emptyIcon}>📄</Text>
-          <Text style={styles.emptyText}>Chưa có transcript nào</Text>
-          <Text style={styles.emptySubtext}>
-            Tag này chưa được gán cho transcript nào
+          <View style={[styles.emptyIconBox, { backgroundColor: tagColor + '20' }]}>
+            <Ionicons name="document-text-outline" size={48} color={tagColor} />
+          </View>
+          <Text style={[styles.emptyText, { color: colors.text }]}>
+            {language === 'vi' ? 'Chưa có transcript nào' : 'No transcripts yet'}
+          </Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+            {language === 'vi' 
+              ? 'Tag này chưa được gán cho transcript nào' 
+              : 'This tag has not been assigned to any transcript'}
           </Text>
         </View>
       ) : (
@@ -122,14 +160,31 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
                 navigation.navigate('TranscriptDetail', { id: item._id })
               }
               onDelete={handleDelete}
+              onTagsUpdated={handleTagsUpdated}
             />
           )}
+          ListHeaderComponent={
+            <View style={[styles.header, { backgroundColor: colors.surface, borderColor: tagColor }]}>
+              <View style={[styles.headerIconBox, { backgroundColor: tagColor + '20' }]}>
+                <Ionicons name="pricetag" size={24} color={tagColor} />
+              </View>
+              <View style={styles.headerTextContainer}>
+                <Text style={[styles.headerText, { color: colors.text }]}>
+                  {items.length} transcript{items.length !== 1 ? 's' : ''}
+                </Text>
+                <Text style={[styles.headerSubtext, { color: tagColor }]}>
+                  {tagName}
+                </Text>
+              </View>
+            </View>
+          }
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
               colors={[tagColor]}
+              tintColor={tagColor}
             />
           }
           onEndReached={handleLoadMore}
@@ -149,8 +204,7 @@ export default function TaggedTranscriptsScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5'
+    flex: 1
   },
   center: {
     flex: 1,
@@ -160,23 +214,52 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 14,
-    color: '#666'
+    fontSize: 16
   },
-  emptyIcon: {
-    fontSize: 64,
+  emptyIconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 20,
+    fontWeight: '700',
     marginBottom: 8
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#666',
     textAlign: 'center'
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    borderLeftWidth: 4,
+    gap: 12
+  },
+  headerIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  headerTextContainer: {
+    flex: 1
+  },
+  headerText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4
+  },
+  headerSubtext: {
+    fontSize: 13,
+    fontWeight: '500'
   },
   listContent: {
     padding: 16

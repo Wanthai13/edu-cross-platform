@@ -1,17 +1,20 @@
 // server/server.ts (UPDATED)
-import 'tsconfig-paths/register';
 import dotenv from 'dotenv';
 import path from 'path';
+import 'tsconfig-paths/register';
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
-import cors from 'cors';
-import authRoutes from './routes/auth';
+import { whisperService } from '../services/whisper-service/whisper.service';
+import analysisRoutes from './routes/analysis';
 import audioRoutes from './routes/audio';
-import transcriptRoutes from './routes/transcript';
+import authRoutes from './routes/auth';
+import studyRoutes from './routes/study';
 import tagRoutes from './routes/tag'; // ✨ NEW
-import { whisperService } from '@services/whisper-service/whisper.service';
+import transcriptRoutes from './routes/transcript';
+import profileRoutes from './routes/profile'; // ✨ Profile & Stats
 
 const app = express();
 
@@ -39,8 +42,7 @@ whisperService.checkAvailability()
       console.log('⚠️ Whisper AI is not available. Transcription will fail.');
       console.log('💡 Installation options:');
       console.log('   1. Install whisper.cpp: https://github.com/ggerganov/whisper.cpp');
-      console.log('   2. Install OpenAI Whisper: pip install openai-whisper');
-      console.log('   3. Use faster-whisper: pip install faster-whisper');
+      console.log('   2. Use faster-whisper: pip install faster-whisper');
     }
   })
   .catch(err => console.error('❌ Error checking Whisper:', err));
@@ -63,6 +65,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/audio', audioRoutes);
 app.use('/api/transcript', transcriptRoutes);
 app.use('/api/tag', tagRoutes); // ✨ NEW
+app.use('/api/profile', profileRoutes); // ✨ Profile & Stats
+app.use('/api', studyRoutes);
+app.use('/api', analysisRoutes);
 
 // API Documentation endpoint
 app.get('/api', (req, res) => {
@@ -85,6 +90,7 @@ app.get('/api', (req, res) => {
         list: 'GET /api/transcript',
         get: 'GET /api/transcript/:transcriptId',
         getByAudio: 'GET /api/transcript/audio/:audioId',
+        createFromYoutube: 'POST /api/transcript/youtube',
         updateMetadata: 'PATCH /api/transcript/:transcriptId/metadata',
         delete: 'DELETE /api/transcript/:transcriptId',
         updateSegment: 'PATCH /api/transcript/:transcriptId/segment/:segmentId',
@@ -93,6 +99,9 @@ app.get('/api', (req, res) => {
         export: 'GET /api/transcript/:transcriptId/export/:format',
         search: 'GET /api/transcript/:transcriptId/search?query=',
         history: 'GET /api/transcript/:transcriptId/history'
+      },
+      analysis: {
+        save: 'POST /api/transcript/analysis'
       },
       // ✨ NEW: Tag endpoints
       tag: {
@@ -106,6 +115,16 @@ app.get('/api', (req, res) => {
         getTranscriptsByTag: 'GET /api/tag/:tagId/transcripts',
         bulkAdd: 'POST /api/tag/bulk/add',
         bulkRemove: 'POST /api/tag/bulk/remove'
+      },
+      // ✨ NEW: Profile & Stats endpoints
+      profile: {
+        getStats: 'GET /api/profile/stats',
+        getAchievements: 'GET /api/profile/achievements',
+        getSettings: 'GET /api/profile/settings',
+        updateSettings: 'PATCH /api/profile/settings',
+        recordActivity: 'POST /api/profile/activity',
+        getDailyProgress: 'GET /api/profile/daily-progress',
+        resetWeekly: 'POST /api/profile/reset-weekly'
       }
     }
   });
@@ -131,13 +150,15 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📝 Auth API: http://localhost:${PORT}/api/auth`);
-  console.log(`🎤 Audio API: http://localhost:${PORT}/api/audio`);
-  console.log(`📄 Transcript API: http://localhost:${PORT}/api/transcript`);
-  console.log(`🏷️  Tag API: http://localhost:${PORT}/api/tag`); // ✨ NEW
-  console.log(`📚 API Docs: http://localhost:${PORT}/api`);
+const HOST = process.env.HOST || '0.0.0.0'; // Listen on all interfaces to allow LAN access
+app.listen(Number(PORT), HOST, () => {
+  console.log(`🚀 Server running on ${HOST}:${PORT}`);
+  console.log(`📝 Auth API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/auth`);
+  console.log(`🎤 Audio API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/audio`);
+  console.log(`📄 Transcript API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/transcript`);
+  console.log(`🏷️  Tag API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/tag`);
+  console.log(`📚 API Docs: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api`);
+  console.log(`🌐 LAN Access: http://192.168.1.11:${PORT}/api`);
 });
 
 // Graceful shutdown

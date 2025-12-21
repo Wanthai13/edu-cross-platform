@@ -11,8 +11,11 @@ import {
   FlatList,
   ActivityIndicator
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { transcriptService, TranscriptItem } from '../services/transcriptService';
 import { tagServiceClient, Tag } from '../services/tagService';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface Props {
   item: TranscriptItem;
@@ -22,6 +25,8 @@ interface Props {
 }
 
 export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated }: Props) {
+  const { colors, isDark } = useTheme();
+  const { language } = useLanguage();
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showTagModal, setShowTagModal] = useState(false);
@@ -204,23 +209,25 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
   return (
     <>
       <TouchableOpacity
-        style={styles.card}
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
         onPress={onPress}
         onLongPress={handleLongPress}
         activeOpacity={0.7}
       >
         <View style={styles.header}>
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
               {item.title}
             </Text>
             {item.isEdited && (
-              <View style={styles.editedBadge}>
-                <Text style={styles.editedText}>Đã sửa</Text>
+              <View style={[styles.editedBadge, { backgroundColor: isDark ? colors.info + '30' : '#dbeafe' }]}>
+                <Text style={[styles.editedText, { color: colors.info }]}>
+                  {language === 'vi' ? 'Đã sửa' : 'Edited'}
+                </Text>
               </View>
             )}
           </View>
-          <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+          <Text style={[styles.date, { color: colors.textMuted }]}>{formatDate(item.createdAt)}</Text>
         </View>
 
         {/* Display tags */}
@@ -242,8 +249,8 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
               );
             })}
             {item.tags.length > 3 && (
-              <View style={styles.tagBadge}>
-                <Text style={styles.tagBadgeText}>
+              <View style={[styles.tagBadge, { backgroundColor: colors.surfaceVariant }]}>
+                <Text style={[styles.tagBadgeText, { color: colors.textSecondary }]}>
                   +{item.tags.length - 3}
                 </Text>
               </View>
@@ -251,44 +258,51 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
           </View>
         )}
 
-        <Text style={styles.preview} numberOfLines={2}>
+        <Text style={[styles.preview, { color: colors.textSecondary }]} numberOfLines={2}>
           {item.fullText}
         </Text>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { borderTopColor: colors.borderLight }]}>
           <View style={styles.stats}>
-            <View style={styles.stat}>
-              <Text style={styles.statLabel}>📝 {item.segmentCount} đoạn</Text>
+            <View style={[styles.stat, { backgroundColor: colors.surfaceVariant }]}>
+              <Ionicons name="document-text-outline" size={12} color={colors.textSecondary} />
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}> {item.segmentCount}</Text>
             </View>
             {item.highlightCount > 0 && (
-              <View style={styles.stat}>
-                <Text style={styles.statLabel}>⭐ {item.highlightCount} highlights</Text>
+              <View style={[styles.stat, { backgroundColor: isDark ? '#854d0e30' : '#fef3c7' }]}>
+                <Ionicons name="star" size={12} color="#f59e0b" />
+                <Text style={[styles.statLabel, { color: '#f59e0b' }]}> {item.highlightCount}</Text>
               </View>
             )}
-            <View style={styles.stat}>
-              <Text style={styles.statLabel}>🌐 {item.language.toUpperCase()}</Text>
+            <View style={[styles.stat, { backgroundColor: colors.surfaceVariant }]}>
+              <Ionicons name="globe-outline" size={12} color={colors.textSecondary} />
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}> {item.language.toUpperCase()}</Text>
             </View>
           </View>
 
           <View style={styles.actions}>
             <TouchableOpacity
-              style={styles.exportButton}
+              style={[styles.exportButton, { backgroundColor: isDark ? colors.info + '20' : '#eff6ff' }]}
               onPress={handleExport}
               disabled={exporting}
             >
-              <Text style={styles.exportText}>
-                {exporting ? '⏳' : '📤'}
-              </Text>
+              {exporting ? (
+                <ActivityIndicator size="small" color={colors.info} />
+              ) : (
+                <Ionicons name="share-outline" size={18} color={colors.info} />
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.deleteButton}
+              style={[styles.deleteButton, { backgroundColor: isDark ? colors.error + '20' : '#fef2f2' }]}
               onPress={handleDelete}
               disabled={deleting}
             >
-              <Text style={styles.deleteText}>
-                {deleting ? '⏳' : '🗑️'}
-              </Text>
+              {deleting ? (
+                <ActivityIndicator size="small" color={colors.error} />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color={colors.error} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -301,29 +315,35 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
         animationType="slide"
         onRequestClose={() => setShowTagModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Chọn tags</Text>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                {language === 'vi' ? '🏷️ Chọn tags' : '🏷️ Select tags'}
+              </Text>
               <TouchableOpacity
                 onPress={() => setShowTagModal(false)}
-                style={styles.closeButton}
+                style={[styles.closeButton, { backgroundColor: colors.surfaceVariant }]}
               >
-                <Text style={styles.closeButtonText}>✕</Text>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             {loadingTags ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3b82f6" />
-                <Text style={styles.loadingText}>Đang tải tags...</Text>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                  {language === 'vi' ? 'Đang tải tags...' : 'Loading tags...'}
+                </Text>
               </View>
             ) : allTags.length === 0 ? (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyIcon}>🏷️</Text>
-                <Text style={styles.emptyText}>Chưa có tag nào</Text>
-                <Text style={styles.emptySubtext}>
-                  Tạo tag mới từ màn hình chính
+                <Ionicons name="pricetags-outline" size={48} color={colors.textMuted} />
+                <Text style={[styles.emptyText, { color: colors.text }]}>
+                  {language === 'vi' ? 'Chưa có tag nào' : 'No tags yet'}
+                </Text>
+                <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                  {language === 'vi' ? 'Tạo tag mới từ màn hình chính' : 'Create new tags from the main screen'}
                 </Text>
               </View>
             ) : (
@@ -335,22 +355,28 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
               />
             )}
 
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelModalButton]}
+                style={[styles.modalButton, styles.cancelModalButton, { backgroundColor: colors.surfaceVariant }]}
                 onPress={() => setShowTagModal(false)}
               >
-                <Text style={styles.cancelModalButtonText}>Hủy</Text>
+                <Text style={[styles.cancelModalButtonText, { color: colors.textSecondary }]}>
+                  {language === 'vi' ? 'Hủy' : 'Cancel'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
+                style={[styles.modalButton, styles.saveButton, { backgroundColor: colors.primary }]}
                 onPress={handleSaveTags}
                 disabled={savingTags || loadingTags}
               >
+                {savingTags ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
                 <Text style={styles.saveButtonText}>
-                  {savingTags ? 'Đang lưu...' : 'Lưu'}
+                    {language === 'vi' ? 'Lưu' : 'Save'}
                 </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -362,18 +388,18 @@ export default function TranscriptCard({ item, onPress, onDelete, onTagsUpdated 
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
     elevation: 3
   },
   header: {
-    marginBottom: 8
+    marginBottom: 10
   },
   titleRow: {
     flexDirection: 'row',
@@ -381,7 +407,7 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: '#1a1a1a',
     flex: 1
@@ -429,46 +455,44 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between'
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1
   },
   stats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    flex: 1
+    flex: 1,
+    gap: 8
   },
   stat: {
-    marginRight: 12,
-    marginTop: 4
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8
   },
   statLabel: {
     fontSize: 12,
-    color: '#666'
+    fontWeight: '500'
   },
   actions: {
     flexDirection: 'row',
     gap: 8
   },
   exportButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#3b82f6',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center'
-  },
-  exportText: {
-    fontSize: 20
   },
   deleteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#ef4444',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center'
-  },
-  deleteText: {
-    fontSize: 20
   },
   modalOverlay: {
     flex: 1,

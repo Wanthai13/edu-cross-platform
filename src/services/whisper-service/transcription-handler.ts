@@ -34,37 +34,6 @@ class TranscriptionHandler {
   }
 
   /**
-   * Parse OpenAI Whisper (Python) output
-   */
-  parseOpenAIWhisperOutput(whisperOutput: any): TranscriptionResult {
-    try {
-      if (whisperOutput.error) {
-        throw new Error(whisperOutput.error);
-      }
-
-      const segments: TranscriptionSegment[] = whisperOutput.segments?.map((seg: any) => ({
-        id: seg.id,
-        start: seg.start,
-        end: seg.end,
-        text: seg.text?.trim() || '',
-        confidence: seg.confidence
-      })) || [];
-
-      return {
-        text: whisperOutput.text?.trim() || '',
-        language: whisperOutput.language || 'unknown',
-        duration: 0, // Will be filled by caller
-        segments,
-        confidence: this.calculateAverageConfidence(segments)
-      };
-
-    } catch (error) {
-      console.error('🔴 Error parsing OpenAI Whisper output:', error);
-      throw new Error('Failed to parse transcription output');
-    }
-  }
-
-  /**
    * Parse faster-whisper output
    */
   parseFasterWhisperOutput(segments: any[], info: any): TranscriptionResult {

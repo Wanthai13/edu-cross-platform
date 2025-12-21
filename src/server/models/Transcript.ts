@@ -23,7 +23,7 @@ export interface ISegment {
 
 export interface ITranscript extends mongoose.Document {
   audioId: mongoose.Types.ObjectId;
-  userId: mongoose.Types.ObjectId;
+  userId?: mongoose.Types.ObjectId;
   
   // Full transcript
   fullText: string;
@@ -96,7 +96,7 @@ const TranscriptSchema = new mongoose.Schema<ITranscript>({
   userId: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User', 
-    required: true 
+    required: false 
   },
   
   fullText: { type: String, required: true },

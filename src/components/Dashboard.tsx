@@ -1,9 +1,12 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
-type Transcript = {
+const { width } = Dimensions.get('window');
+
+type Session = {
   id: string;
   title: string;
   duration?: string;
@@ -11,184 +14,580 @@ type Transcript = {
   score?: number;
 };
 
-type Language = 'en' | 'vi';
-
-const UI_TEXT: Record<Language, any> = {
-  en: {
-    stats: { totalHours: 'Total Hours', avgScore: 'Avg Score', participants: 'Participants', processed: 'Processed' },
-    charts: { engagement: 'Engagement', recentSessions: 'Recent Sessions', viewAll: 'View All' },
-  },
-  vi: {
-    stats: { totalHours: 'Tổng giờ', avgScore: 'Điểm trung bình', participants: 'Người tham gia', processed: 'Đã xử lý' },
-    charts: { engagement: 'Tương tác', recentSessions: 'Buổi gần đây', viewAll: 'Xem tất cả' },
-  },
+type Stats = {
+  totalSessions: number;
+  totalFlashcards: number;
+  quizAccuracy: number;
+  studyStreak: number;
+  weeklyProgress: number[];
 };
 
 type Props = {
-  recentUploads: Transcript[];
-  onSelectTranscript: (id: string) => void;
-  language?: Language;
-  onLogout: () => void; // 🔥 bắt buộc để TS không lỗi
-
+  userName?: string;
+  recentSessions: Session[];
+  stats: Stats;
+  onSelectSession: (id: string) => void;
+  onQuickAction: (action: 'record' | 'upload' | 'study') => void;
+  onLogout: () => void;
+  onViewAllSessions: () => void;
 };
 
+function getGreetingKey(hour: number): 'morning' | 'afternoon' | 'evening' {
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
+  return 'evening';
+}
 
-export default function Dashboard({ recentUploads, onSelectTranscript, language = 'en',onLogout }: Props) {
-  const t = UI_TEXT[language];
+function getGreetingEmoji(key: 'morning' | 'afternoon' | 'evening'): string {
+  const emojis = { morning: '🌅', afternoon: '☀️', evening: '🌙' };
+  return emojis[key];
+}
 
-  const StatCard = ({ iconName, color, bg, title, value, trend }: any) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={[styles.iconBox, { backgroundColor: bg }]}>
-          <Ionicons name={iconName} size={22} color={color} />
+function getRandomTipIndex(): number {
+  return Math.floor(Math.random() * 6);
+}
+
+export default function Dashboard({
+  userName = 'bạn',
+  recentSessions,
+  stats,
+  onSelectSession,
+  onQuickAction,
+  onLogout,
+  onViewAllSessions,
+}: Props) {
+  const { colors, isDark } = useTheme();
+  const { t } = useLanguage();
+
+  const greetingKey = getGreetingKey(new Date().getHours());
+  const greetingEmoji = getGreetingEmoji(greetingKey);
+  const greetingText = t.dashboard.greeting[greetingKey];
+  const tip = t.tips[getRandomTipIndex()];
+
+  const QuickActionButton = ({ icon, label, color, bgColor, action }: any) => (
+    <TouchableOpacity
+      style={[styles.quickAction, { backgroundColor: isDark ? colors.surfaceVariant : bgColor, borderColor: colors.border }]}
+      onPress={() => onQuickAction(action)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.quickActionIcon, { backgroundColor: color }]}>
+        <Ionicons name={icon} size={24} color="#fff" />
         </View>
-        {trend ? (
-          <View style={styles.trendBadge}>
-            <Ionicons name="trending-up" size={12} color="#10b981" />
-            <Text style={styles.trendText}>{trend}</Text>
-          </View>
-        ) : null}
+      <Text style={[styles.quickActionLabel, { color: colors.text }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  const StatCard = ({ icon, value, label, color, trend }: any) => (
+    <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+      <View style={[styles.statIconBox, { backgroundColor: isDark ? color + '30' : color + '20' }]}>
+        <Ionicons name={icon} size={20} color={color} />
       </View>
-      <Text style={styles.cardLabel}>{title}</Text>
-      <Text style={styles.cardValue}>{value}</Text>
+      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+      {trend && (
+        <View style={styles.trendBadge}>
+          <Ionicons name="trending-up" size={10} color={colors.success} />
+          <Text style={[styles.trendText, { color: colors.success }]}>{trend}</Text>
+        </View>
+      )}
     </View>
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Dashboard</Text>
-
-         <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-           <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-           <Text style={styles.logoutText}>Logout</Text>
+        <View>
+          <Text style={[styles.greeting, { color: colors.text }]}>
+            {greetingEmoji} {greetingText}, {userName}!
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t.dashboard.subtitle}</Text>
+        </View>
+        <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: isDark ? '#2a1f1f' : '#fef2f2' }]} onPress={onLogout}>
+          <Ionicons name="log-out-outline" size={20} color={colors.error} />
          </TouchableOpacity>
       </View>
-      <View style={styles.grid}>
-        <View style={styles.row}>
-          <View style={styles.col}>
-            <StatCard iconName="flash-outline" color="#4f46e5" bg="#e0e7ff" title={t.stats.totalHours} value="24.5h" trend="+12%" />
-          </View>
-          <View style={styles.col}>
-            <StatCard iconName="trophy-outline" color="#f97316" bg="#ffedd5" title={t.stats.avgScore} value="82/100" trend="+5%" />
-          </View>
-        </View>
 
-        <View style={styles.row}>
-          <View style={styles.col}>
-            <StatCard iconName="people-outline" color="#2563eb" bg="#dbeafe" title={t.stats.participants} value="142" />
+      {/* Quick Actions */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>⚡ {t.dashboard.quickActions}</Text>
+        <View style={styles.quickActionsRow}>
+          <QuickActionButton
+            icon="mic"
+            label={t.dashboard.record}
+            color={colors.error}
+            bgColor="#fef2f2"
+            action="record"
+          />
+          <QuickActionButton
+            icon="cloud-upload"
+            label={t.dashboard.uploadFile}
+            color={colors.info}
+            bgColor="#eff6ff"
+            action="upload"
+          />
+          <QuickActionButton
+            icon="school"
+            label={t.dashboard.studyNow}
+            color={colors.primary}
+            bgColor="#f5f3ff"
+            action="study"
+          />
           </View>
-          <View style={styles.col}>
-            <StatCard iconName="time-outline" color="#9333ea" bg="#f3e8ff" title={t.stats.processed} value="4" trend="+2" />
-          </View>
-        </View>
       </View>
 
-      <View style={styles.chartSection}>
-        <Text style={styles.sectionTitle}>{t.charts.engagement}</Text>
-        <View style={styles.chartPlaceholder}>
-          <Ionicons name="trending-up-outline" size={48} color="#cbd5e1" />
-          <Text style={styles.chartPlaceholderText}>Chart requires react-native-chart-kit</Text>
+      {/* Stats */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>📊 {t.dashboard.stats}</Text>
+        <View style={styles.statsGrid}>
+          <StatCard
+            icon="documents"
+            value={stats.totalSessions}
+            label={t.dashboard.sessions}
+            color={colors.info}
+            trend={stats.totalSessions > 0 ? `+${Math.min(stats.totalSessions, 5)}` : null}
+          />
+          <StatCard
+            icon="albums"
+            value={stats.totalFlashcards}
+            label={t.dashboard.flashcards}
+            color={colors.primary}
+          />
+          <StatCard
+            icon="checkmark-circle"
+            value={`${stats.quizAccuracy}%`}
+            label={t.dashboard.quiz}
+            color="#10b981"
+          />
+          </View>
         </View>
-      </View>
 
-      <View style={styles.recentSection}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t.charts.recentSessions}</Text>
-          <TouchableOpacity>
-            <Text style={styles.viewAllText}>{t.charts.viewAll}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {recentUploads.map((item) => (
-          <TouchableOpacity key={item.id} onPress={() => onSelectTranscript(item.id)} style={styles.recentItem}>
-            <View style={styles.recentItemContent}>
-              <View style={styles.recentInfo}>
-                <Text style={styles.recentTitle} numberOfLines={1}>{item.title}</Text>
-                <View style={styles.recentMeta}>
-                  <View style={styles.badge}>
-                    <Ionicons name="time-outline" size={12} color="#64748b" />
-                    <Text style={styles.badgeText}>{item.duration ?? ''}</Text>
-                  </View>
-                  <Text style={styles.dateText}>{item.date ?? ''}</Text>
-                </View>
-              </View>
-
-              <View style={styles.recentScore}>
-                <View style={[styles.scoreBadge, (item.score || 0) > 80 ? styles.scoreHigh : styles.scoreMed]}>
-                  <Text style={[styles.scoreText, (item.score || 0) > 80 ? styles.scoreTextHigh : styles.scoreTextMed]}>{item.score ?? 0}%</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
-              </View>
+      {/* Learning Streak */}
+      <View style={[styles.streakCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+        <View style={styles.streakHeader}>
+          <View style={styles.streakInfo}>
+            <Text style={styles.streakEmoji}>🔥</Text>
+            <View>
+              <Text style={[styles.streakTitle, { color: colors.textSecondary }]}>{t.dashboard.streak}</Text>
+              <Text style={[styles.streakValue, { color: colors.text }]}>{stats.studyStreak} {t.dashboard.streakDays}</Text>
             </View>
-          </TouchableOpacity>
-        ))}
+          </View>
+          <View style={[styles.streakBadge, { backgroundColor: isDark ? '#422006' : '#fef3c7' }]}>
+            <Text style={styles.streakBadgeText}>
+              {stats.studyStreak >= 7 ? '🏆' : stats.studyStreak >= 3 ? '⭐' : '💪'}
+            </Text>
+          </View>
+        </View>
+        
+        {/* Weekly Progress Bar */}
+        <View style={[styles.weeklyProgress, { borderTopColor: colors.borderLight }]}>
+          {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((day, idx) => (
+            <View key={day} style={styles.dayColumn}>
+              <View
+                style={[
+                  styles.dayBar,
+                  {
+                    height: Math.max(8, (stats.weeklyProgress[idx] || 0) * 0.4),
+                    backgroundColor: stats.weeklyProgress[idx] > 0 ? colors.primary : colors.border,
+                  },
+                ]}
+              />
+              <Text style={[styles.dayLabel, { color: colors.textMuted }]}>{day}</Text>
       </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Recent Sessions */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>📝 {t.dashboard.recentSessions}</Text>
+          <TouchableOpacity onPress={onViewAllSessions}>
+            <Text style={[styles.viewAllText, { color: colors.primary }]}>{t.dashboard.viewAll} →</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentSessions.length === 0 ? (
+          <View style={[styles.emptyState, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{t.dashboard.noSessions}</Text>
+            <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>{t.dashboard.noSessions}</Text>
+            <TouchableOpacity
+              style={[styles.emptyButton, { backgroundColor: colors.primary }]}
+              onPress={() => onQuickAction('record')}
+            >
+              <Ionicons name="mic" size={18} color="#fff" />
+              <Text style={styles.emptyButtonText}>{t.dashboard.startRecording}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          recentSessions.slice(0, 5).map((session, idx) => (
+            <TouchableOpacity
+              key={session.id}
+              style={[styles.sessionCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+              onPress={() => onSelectSession(session.id)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.sessionIcon, { backgroundColor: isDark ? '#2d1f4e' : '#f5f3ff' }]}>
+                <Ionicons name="document-text" size={20} color={colors.primary} />
+              </View>
+              <View style={styles.sessionInfo}>
+                <Text style={[styles.sessionTitle, { color: colors.text }]} numberOfLines={1}>
+                  {session.title}
+                </Text>
+                <View style={styles.sessionMeta}>
+                  {session.duration && (
+                    <View style={[styles.metaBadge, { backgroundColor: colors.surfaceVariant }]}>
+                      <Ionicons name="time-outline" size={12} color={colors.textSecondary} />
+                      <Text style={[styles.metaText, { color: colors.textSecondary }]}>{session.duration}</Text>
+                  </View>
+                  )}
+                  {session.date && (
+                    <Text style={[styles.dateText, { color: colors.textMuted }]}>{session.date}</Text>
+                  )}
+                </View>
+              </View>
+              {session.score !== undefined && (
+                <View
+                  style={[
+                    styles.scoreBadge,
+                    { backgroundColor: session.score >= 80 ? (isDark ? '#052e16' : '#dcfce7') : session.score >= 60 ? (isDark ? '#422006' : '#fef3c7') : (isDark ? '#450a0a' : '#fee2e2') },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.scoreText,
+                      { color: session.score >= 80 ? '#166534' : session.score >= 60 ? '#92400e' : '#991b1b' },
+                    ]}
+                  >
+                    {session.score}%
+                  </Text>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          ))
+        )}
+              </View>
+
+      {/* Daily Tip */}
+      <View style={[styles.tipCard, { backgroundColor: isDark ? '#422006' : '#fef3c7', borderColor: isDark ? '#92400e' : '#fde68a' }]}>
+        <Text style={[styles.tipText, { color: isDark ? '#fde68a' : '#92400e' }]}>{tip}</Text>
+      </View>
+
+      {/* Bottom spacing for tab bar */}
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  contentContainer: { padding: 20, paddingBottom: 40 },
-  grid: { marginBottom: 20 },
-  row: { flexDirection: 'row', marginBottom: 12 },
-  col: { flex: 1, paddingHorizontal: 6 },
-  card: { backgroundColor: 'white', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  iconBox: { padding: 10, borderRadius: 12 },
-  trendBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
-  trendText: { fontSize: 10, fontWeight: 'bold', color: '#10b981' },
-  cardLabel: { fontSize: 11, fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
-  cardValue: { fontSize: 24, fontWeight: 'bold', color: '#1e293b' },
-  chartSection: { backgroundColor: 'white', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#f1f5f9', marginBottom: 24 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 16 },
-  chartPlaceholder: { height: 180, backgroundColor: '#f8fafc', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: '#e2e8f0' },
-  chartPlaceholderText: { marginTop: 8, color: '#94a3b8', fontSize: 12 },
-  recentSection: { backgroundColor: 'white', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#f1f5f9' },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  viewAllText: { fontSize: 12, fontWeight: 'bold', color: '#4f46e5', textTransform: 'uppercase' },
-  recentItem: { marginBottom: 12, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: 'transparent' },
-  recentItemContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
-  recentInfo: { flex: 1, marginRight: 10 },
-  recentTitle: { fontSize: 14, fontWeight: 'bold', color: '#1e293b', marginBottom: 6 },
-  recentMeta: { flexDirection: 'row', alignItems: 'center' },
-  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  badgeText: { fontSize: 10, color: '#64748b' },
-  dateText: { fontSize: 10, color: '#94a3b8' },
-  recentScore: { flexDirection: 'row', alignItems: 'center' },
-  scoreBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
-  scoreHigh: { backgroundColor: '#ecfdf5' },
-  scoreMed: { backgroundColor: '#fef3c7' },
-  scoreText: { fontSize: 11, fontWeight: 'bold' },
-  scoreTextHigh: { color: '#047857' },
-  scoreTextMed: { color: '#b45309' },
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  content: {
+    padding: 20,
+  },
   header: {
   flexDirection: 'row',
   justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  greeting: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: '#64748b',
+  },
+  logoutBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fef2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8b5cf6',
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  quickAction: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  quickActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickActionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  statIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   alignItems: 'center',
-  marginBottom: 20,
+    justifyContent: 'center',
+    marginBottom: 8,
 },
-
-headerTitle: {
+  statValue: {
   fontSize: 22,
-  fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  trendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  trendText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10b981',
+    marginLeft: 2,
+  },
+  streakCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  streakHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  streakInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  streakEmoji: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  streakTitle: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  streakValue: {
+    fontSize: 18,
+    fontWeight: '700',
   color: '#1e293b',
 },
-
-logoutBtn: {
+  streakBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakBadgeText: {
+    fontSize: 20,
+  },
+  weeklyProgress: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 60,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  dayColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  dayBar: {
+    width: 24,
+    borderRadius: 4,
+    marginBottom: 6,
+    minHeight: 8,
+  },
+  dayLabel: {
+    fontSize: 10,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  sessionCard: {
   flexDirection: 'row',
   alignItems: 'center',
-  backgroundColor: '#fee2e2',
-  paddingHorizontal: 10,
-  paddingVertical: 6,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  sessionIcon: {
+    width: 40,
+    height: 40,
   borderRadius: 10,
-},
-
-logoutText: {
+    backgroundColor: '#f5f3ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  sessionMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  metaText: {
+    fontSize: 11,
+    color: '#6b7280',
   marginLeft: 4,
+  },
+  dateText: {
+    fontSize: 11,
+    color: '#94a3b8',
+  },
+  scoreBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  scoreText: {
   fontSize: 12,
-  fontWeight: 'bold',
-  color: '#ef4444',
+    fontWeight: '700',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: '#9ca3af',
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  emptyButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  tipCard: {
+    backgroundColor: '#fef3c7',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  tipText: {
+    fontSize: 14,
+    color: '#92400e',
+    lineHeight: 20,
 },
 });

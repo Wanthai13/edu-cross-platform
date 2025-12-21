@@ -20,10 +20,16 @@ import TranscriptCard from '../components/TranscriptCard';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../AppNavigator';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { transcriptEvents } from '../utils/transcriptEvents';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Transcripts'>;
 
 export default function TranscriptListScreen({ navigation }: Props) {
+  const { colors, isDark } = useTheme();
+  const { t, language } = useLanguage();
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<TranscriptItem[]>([]);
@@ -124,6 +130,25 @@ export default function TranscriptListScreen({ navigation }: Props) {
     }, [])
   );
 
+  // Subscribe to transcript events to refresh when new transcript is created
+  useEffect(() => {
+    console.log('📢 TranscriptList: Subscribing to transcript events');
+    const unsubscribe = transcriptEvents.subscribe(() => {
+      console.log('📢 TranscriptList: Received transcript update event, refreshing...');
+      // Refresh immediately and also with delay
+      loadData(true);
+      setTimeout(() => {
+        console.log('📢 TranscriptList: Delayed refresh');
+        loadData(true);
+      }, 1000);
+    });
+    console.log('📢 TranscriptList: Subscribed, total listeners:', transcriptEvents.listenerCount);
+    return () => {
+      console.log('📢 TranscriptList: Unsubscribing');
+      unsubscribe();
+    };
+  }, []);
+
   const onRefresh = () => {
     loadData(true);
   };
@@ -184,30 +209,30 @@ export default function TranscriptListScreen({ navigation }: Props) {
   };
 
   const StatCard = ({ iconName, color, bg, title, value }: any) => (
-    <View style={styles.statCard}>
+    <View style={[styles.statCard, { backgroundColor: colors.surface }]}>
       <View style={styles.statHeader}>
-        <View style={[styles.statIconBox, { backgroundColor: bg }]}>
+        <View style={[styles.statIconBox, { backgroundColor: isDark ? color + '30' : bg }]}>
           <Ionicons name={iconName} size={20} color={color} />
         </View>
       </View>
-      <Text style={styles.statLabel}>{title}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{title}</Text>
+      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
     </View>
   );
 
   const renderTagCard = (tag: Tag) => (
     <TouchableOpacity
       key={tag._id}
-      style={[styles.tagCard, { borderLeftColor: tag.color }]}
+      style={[styles.tagCard, { borderLeftColor: tag.color, backgroundColor: colors.surface }]}
       onPress={() => navigateToTaggedTranscripts(tag)}
       activeOpacity={0.7}
     >
       <View style={styles.tagCardContent}>
-        <Text style={styles.tagName} numberOfLines={2}>
+        <Text style={[styles.tagName, { color: colors.text }]} numberOfLines={2}>
           {tag.name}
         </Text>
-        <View style={styles.tagBadge}>
-          <Text style={styles.tagCount}>{tag.transcriptCount}</Text>
+        <View style={[styles.tagBadge, { backgroundColor: colors.surfaceVariant }]}>
+          <Text style={[styles.tagCount, { color: colors.text }]}>{tag.transcriptCount}</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -215,32 +240,32 @@ export default function TranscriptListScreen({ navigation }: Props) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#3b82f6" />
-        <Text style={styles.loadingText}>Đang tải...</Text>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{t.common.loading}</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+      <View style={[styles.searchContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}>
+          <Ionicons name="search-outline" size={20} color={colors.textMuted} style={{ marginRight: 10 }} />
           <TextInput
-            style={styles.searchInput}
-            placeholder="Tìm kiếm transcript..."
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder={t.sessions.search}
+            placeholderTextColor={colors.placeholder}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity
               onPress={handleClearSearch}
-              style={styles.clearButton}
+              style={[styles.clearButton, { backgroundColor: colors.surfaceVariant }]}
             >
-              <Text style={styles.clearIcon}>✕</Text>
+              <Ionicons name="close" size={16} color={colors.textSecondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -248,23 +273,23 @@ export default function TranscriptListScreen({ navigation }: Props) {
 
       {/* Stats Cards - Only show when NOT searching */}
       {!isSearching && (
-        <View style={styles.statsContainer}>
+        <View style={[styles.statsContainer, { backgroundColor: colors.background }]}>
           <View style={styles.statsRow}>
             <View style={styles.statsCol}>
               <StatCard 
                 iconName="document-text-outline" 
-                color="#4f46e5" 
-                bg="#e0e7ff" 
-                title="Tổng Transcripts" 
+                color={colors.primary} 
+                bg={isDark ? colors.primary + '20' : '#e0e7ff'} 
+                title={language === 'vi' ? 'Tổng Transcripts' : 'Total Transcripts'} 
                 value={stats.totalTranscripts} 
               />
             </View>
             <View style={styles.statsCol}>
               <StatCard 
                 iconName="pricetags-outline" 
-                color="#f97316" 
-                bg="#ffedd5" 
-                title="Tổng Tags" 
+                color={colors.warning} 
+                bg={isDark ? colors.warning + '20' : '#ffedd5'} 
+                title={language === 'vi' ? 'Tổng Tags' : 'Total Tags'} 
                 value={stats.totalTags} 
               />
             </View>
@@ -274,9 +299,9 @@ export default function TranscriptListScreen({ navigation }: Props) {
             <View style={styles.statsCol}>
               <StatCard 
                 iconName="list-outline" 
-                color="#2563eb" 
-                bg="#dbeafe" 
-                title="TB Segments" 
+                color={colors.info} 
+                bg={isDark ? colors.info + '20' : '#dbeafe'} 
+                title={language === 'vi' ? 'TB Segments' : 'Avg Segments'} 
                 value={stats.avgSegments} 
               />
             </View>
@@ -284,7 +309,7 @@ export default function TranscriptListScreen({ navigation }: Props) {
               <StatCard 
                 iconName="star-outline" 
                 color="#9333ea" 
-                bg="#f3e8ff" 
+                bg={isDark ? '#9333ea20' : '#f3e8ff'} 
                 title="Highlights" 
                 value={stats.totalHighlights} 
               />
@@ -297,11 +322,11 @@ export default function TranscriptListScreen({ navigation }: Props) {
       {isSearching ? (
         <View style={styles.searchResultsContainer}>
           {filteredItems.length === 0 ? (
-            <View style={styles.center}>
+            <View style={[styles.center, { backgroundColor: colors.background }]}>
               <Text style={styles.emptyIcon}>🔍</Text>
-              <Text style={styles.emptyText}>Không tìm thấy kết quả</Text>
-              <Text style={styles.emptySubtext}>
-                Thử tìm kiếm với từ khóa khác
+              <Text style={[styles.emptyText, { color: colors.text }]}>{t.sessions.noResults}</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                {language === 'vi' ? 'Thử tìm kiếm với từ khóa khác' : 'Try a different search term'}
               </Text>
             </View>
           ) : (
@@ -317,9 +342,9 @@ export default function TranscriptListScreen({ navigation }: Props) {
                 />
               )}
               ListHeaderComponent={
-                <View style={styles.searchHeader}>
-                  <Text style={styles.searchHeaderText}>
-                    Tìm thấy {filteredItems.length} kết quả
+                <View style={[styles.searchHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+                  <Text style={[styles.searchHeaderText, { color: colors.textSecondary }]}>
+                    {language === 'vi' ? `Tìm thấy ${filteredItems.length} kết quả` : `Found ${filteredItems.length} results`}
                   </Text>
                 </View>
               }
@@ -328,18 +353,19 @@ export default function TranscriptListScreen({ navigation }: Props) {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  colors={['#3b82f6']}
+                  colors={[colors.primary]}
+                  tintColor={colors.primary}
                 />
               }
             />
           )}
         </View>
       ) : items.length === 0 ? (
-        <View style={styles.center}>
+        <View style={[styles.center, { backgroundColor: colors.background }]}>
           <Text style={styles.emptyIcon}>📄</Text>
-          <Text style={styles.emptyText}>Chưa có transcript nào</Text>
-          <Text style={styles.emptySubtext}>
-            Upload file audio để bắt đầu
+          <Text style={[styles.emptyText, { color: colors.text }]}>{t.sessions.empty}</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+            {language === 'vi' ? 'Upload file audio để bắt đầu' : 'Upload an audio file to get started'}
           </Text>
         </View>
       ) : (
@@ -348,7 +374,8 @@ export default function TranscriptListScreen({ navigation }: Props) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#3b82f6']}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
             />
           }
         >
@@ -356,23 +383,27 @@ export default function TranscriptListScreen({ navigation }: Props) {
             {/* Untagged Section */}
             {untaggedCount > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Chưa phân loại</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  {language === 'vi' ? '📋 Chưa phân loại' : '📋 Uncategorized'}
+                </Text>
                 <TouchableOpacity
-                  style={styles.untaggedCard}
+                  style={[styles.untaggedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={navigateToUntagged}
                   activeOpacity={0.7}
                 >
                   <View style={styles.untaggedContent}>
-                    <Text style={styles.untaggedIcon}>📋</Text>
+                    <View style={[styles.untaggedIconBox, { backgroundColor: isDark ? colors.warning + '20' : '#fef3c7' }]}>
+                      <Ionicons name="folder-open-outline" size={24} color={colors.warning} />
+                    </View>
                     <View style={styles.untaggedTextContainer}>
-                      <Text style={styles.untaggedTitle}>
-                        Transcript chưa có tag
+                      <Text style={[styles.untaggedTitle, { color: colors.text }]}>
+                        {language === 'vi' ? 'Transcript chưa có tag' : 'Untagged transcripts'}
                       </Text>
-                      <Text style={styles.untaggedCount}>
-                        {untaggedCount} transcript
+                      <Text style={[styles.untaggedCount, { color: colors.textSecondary }]}>
+                        {untaggedCount} transcript{untaggedCount > 1 ? 's' : ''}
                       </Text>
                     </View>
-                    <Text style={styles.chevron}>›</Text>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                   </View>
                 </TouchableOpacity>
               </View>
@@ -382,12 +413,15 @@ export default function TranscriptListScreen({ navigation }: Props) {
             {tags.length > 0 && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Tags</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>🏷️ Tags</Text>
                   <TouchableOpacity
-                    style={styles.addTagButton}
+                    style={[styles.addTagButton, { backgroundColor: colors.primary }]}
                     onPress={() => setShowCreateTagModal(true)}
                   >
-                    <Text style={styles.addTagButtonText}>+ Tạo tag</Text>
+                    <Ionicons name="add" size={16} color="#fff" />
+                    <Text style={styles.addTagButtonText}>
+                      {language === 'vi' ? 'Tạo tag' : 'New tag'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.tagsGrid}>
@@ -402,19 +436,24 @@ export default function TranscriptListScreen({ navigation }: Props) {
 
             {/* Empty state for tags */}
             {tags.length === 0 && (
-              <View style={styles.emptyTagsContainer}>
-                <Text style={styles.emptyTagsIcon}>🏷️</Text>
-                <Text style={styles.emptyTagsText}>
-                  Chưa có tag nào
+              <View style={[styles.emptyTagsContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={[styles.emptyTagsIconBox, { backgroundColor: isDark ? colors.primary + '20' : '#f5f3ff' }]}>
+                  <Ionicons name="pricetags-outline" size={32} color={colors.primary} />
+                </View>
+                <Text style={[styles.emptyTagsText, { color: colors.text }]}>
+                  {language === 'vi' ? 'Chưa có tag nào' : 'No tags yet'}
                 </Text>
-                <Text style={styles.emptyTagsSubtext}>
-                  Tạo tag để tổ chức transcripts của bạn
+                <Text style={[styles.emptyTagsSubtext, { color: colors.textSecondary }]}>
+                  {language === 'vi' ? 'Tạo tag để tổ chức transcripts của bạn' : 'Create tags to organize your transcripts'}
                 </Text>
                 <TouchableOpacity
-                  style={styles.createTagButton}
+                  style={[styles.createTagButton, { backgroundColor: colors.primary }]}
                   onPress={() => setShowCreateTagModal(true)}
                 >
-                  <Text style={styles.createTagButtonText}>+ Tạo tag đầu tiên</Text>
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text style={styles.createTagButtonText}>
+                    {language === 'vi' ? 'Tạo tag đầu tiên' : 'Create first tag'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -425,11 +464,11 @@ export default function TranscriptListScreen({ navigation }: Props) {
       {/* Floating Action Button */}
       {!isSearching && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { backgroundColor: colors.primary }]}
           onPress={() => setShowCreateTagModal(true)}
           activeOpacity={0.8}
         >
-          <Text style={styles.fabIcon}>+</Text>
+          <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
       )}
 
@@ -440,21 +479,30 @@ export default function TranscriptListScreen({ navigation }: Props) {
         animationType="fade"
         onRequestClose={() => setShowCreateTagModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Tạo tag mới</Text>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {language === 'vi' ? '🏷️ Tạo tag mới' : '🏷️ Create new tag'}
+            </Text>
 
             <TextInput
-              style={styles.input}
-              placeholder="Tên tag"
+              style={[styles.input, { 
+                backgroundColor: colors.inputBackground, 
+                borderColor: colors.inputBorder,
+                color: colors.text 
+              }]}
+              placeholder={language === 'vi' ? 'Tên tag' : 'Tag name'}
+              placeholderTextColor={colors.placeholder}
               value={newTagName}
               onChangeText={setNewTagName}
               autoFocus
             />
 
-            <Text style={styles.colorLabel}>Chọn màu:</Text>
+            <Text style={[styles.colorLabel, { color: colors.textSecondary }]}>
+              {language === 'vi' ? 'Chọn màu:' : 'Choose color:'}
+            </Text>
             <View style={styles.colorPicker}>
-              {['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'].map(
+              {['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06b6d4', '#84cc16'].map(
                 (color) => (
                   <TouchableOpacity
                     key={color}
@@ -464,31 +512,39 @@ export default function TranscriptListScreen({ navigation }: Props) {
                       newTagColor === color && styles.colorOptionSelected
                     ]}
                     onPress={() => setNewTagColor(color)}
-                  />
+                  >
+                    {newTagColor === color && (
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                    )}
+                  </TouchableOpacity>
                 )
               )}
             </View>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
+                style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.surfaceVariant }]}
                 onPress={() => {
                   setShowCreateTagModal(false);
                   setNewTagName('');
                   setNewTagColor('#3B82F6');
                 }}
               >
-                <Text style={styles.cancelButtonText}>Hủy</Text>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>{t.common.cancel}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, styles.createButton]}
+                style={[styles.modalButton, styles.createButton, { backgroundColor: colors.primary }]}
                 onPress={handleCreateTag}
                 disabled={creatingTag}
               >
-                <Text style={styles.createButtonText}>
-                  {creatingTag ? 'Đang tạo...' : 'Tạo'}
-                </Text>
+                {creatingTag ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.createButtonText}>
+                    {language === 'vi' ? 'Tạo' : 'Create'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -530,24 +586,18 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   searchContainer: {
-    backgroundColor: '#fff',
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb'
+    borderBottomWidth: 1
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44
-  },
-  searchIcon: {
-    fontSize: 18,
-    marginRight: 8
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 48,
+    borderWidth: 1
   },
   searchInput: {
     flex: 1,
@@ -556,12 +606,9 @@ const styles = StyleSheet.create({
     padding: 0
   },
   clearButton: {
-    padding: 4,
-    marginLeft: 8
-  },
-  clearIcon: {
-    fontSize: 18,
-    color: '#999'
+    padding: 6,
+    marginLeft: 8,
+    borderRadius: 12
   },
   // Stats Cards Styles
   statsContainer: {
@@ -628,10 +675,12 @@ const styles = StyleSheet.create({
     color: '#666'
   },
   searchListContent: {
-    padding: 16
+    padding: 16,
+    paddingBottom: 120
   },
   content: {
-    padding: 16
+    padding: 16,
+    paddingBottom: 120
   },
   section: {
     marginBottom: 24
@@ -643,15 +692,16 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a'
+    fontSize: 18,
+    fontWeight: '700'
   },
   addTagButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 4
   },
   addTagButtonText: {
     fontSize: 13,
@@ -659,22 +709,26 @@ const styles = StyleSheet.create({
     color: '#fff'
   },
   untaggedCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 3
   },
   untaggedContent: {
     flexDirection: 'row',
     alignItems: 'center'
   },
-  untaggedIcon: {
-    fontSize: 32,
-    marginRight: 12
+  untaggedIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14
   },
   untaggedTextContainer: {
     flex: 1
@@ -682,16 +736,10 @@ const styles = StyleSheet.create({
   untaggedTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a1a1a',
     marginBottom: 4
   },
   untaggedCount: {
-    fontSize: 14,
-    color: '#666'
-  },
-  chevron: {
-    fontSize: 32,
-    color: '#ccc'
+    fontSize: 13
   },
   tagsGrid: {
     flexDirection: 'row',
@@ -738,28 +786,37 @@ const styles = StyleSheet.create({
   },
   emptyTagsContainer: {
     alignItems: 'center',
-    paddingVertical: 40
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed'
   },
-  emptyTagsIcon: {
-    fontSize: 48,
-    marginBottom: 12
+  emptyTagsIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16
   },
   emptyTagsText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 4
+    marginBottom: 6
   },
   emptyTagsSubtext: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 20
+    marginBottom: 24,
+    textAlign: 'center'
   },
   createTagButton: {
-    backgroundColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24
+    paddingVertical: 14,
+    borderRadius: 24,
+    gap: 6
   },
   createTagButtonText: {
     fontSize: 15,
@@ -769,7 +826,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 20,
-    bottom: 20,
+    bottom: 100,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -830,11 +887,18 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginRight: 12,
-    marginBottom: 8
+    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   colorOptionSelected: {
     borderWidth: 3,
-    borderColor: '#1a1a1a'
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4
   },
   modalActions: {
     flexDirection: 'row',

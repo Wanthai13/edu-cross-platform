@@ -1,9 +1,9 @@
 // services/whisper-service/whisper.service.ts
+import axios from 'axios';
+import { exec } from 'child_process';
 import FormData from 'form-data';
 import fs from 'fs';
-import axios from 'axios';
 import path from 'path';
-import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
@@ -12,7 +12,15 @@ interface TranscriptionOptions {
   language?: string; // 'vi', 'en', hoặc undefined (auto-detect)
 }
 
-interface TranscriptionResult {
+export interface TranscriptionSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+  confidence?: number;
+}
+
+export interface TranscriptionResult {
   text: string;
   language: string;
   duration: number;
@@ -31,25 +39,19 @@ class WhisperService {
   // CONFIGURATION
   // ==========================================
   
-  private useOpenAI: boolean;
-  private openAIKey?: string;
+  // OpenAI support removed – only Colab or local Whisper are used now
   private colabUrl?: string;
   
   constructor() {
-    // Kiểm tra môi trường để chọn provider
-    this.useOpenAI = process.env.USE_OPENAI_WHISPER === 'true';
-    this.openAIKey = process.env.OPENAI_API_KEY;
+    // By default prefer Colab URL; otherwise fall back to local Whisper
+    // Use COLAB_WHISPER_URL from server .env (ngrok to Kaggle/Colab)
     this.colabUrl = process.env.COLAB_WHISPER_URL;
     
     console.log('🎙️ Whisper Service Configuration:');
-    console.log(`   Provider: ${this.useOpenAI ? 'OpenAI API' : 'Colab/Local'}`);
-    
-    if (this.useOpenAI && !this.openAIKey) {
-      console.warn('⚠️  OpenAI enabled but no API key found!');
-    }
-    
-    if (!this.useOpenAI && !this.colabUrl) {
-      console.warn('⚠️  No Colab URL configured. Using local Whisper (slow).');
+    console.log(`   Provider: ${this.colabUrl ? 'Colab/Remote Whisper' : 'Local Whisper CLI'}`);
+
+    if (!this.colabUrl) {
+      console.warn('⚠️  No Colab URL configured. Using local Whisper (may be slow).');
     }
   }
   
@@ -65,10 +67,8 @@ class WhisperService {
       console.log(`🎙️ Transcribing: ${path.basename(audioPath)}`);
       console.log(`   Language: ${options.language || 'auto-detect'}`);
       
-      // Chọn provider dựa trên config
-      if (this.useOpenAI) {
-        return await this.transcribeWithOpenAI(audioPath, options);
-      } else if (this.colabUrl) {
+      // Chọn provider dựa trên config (Colab preferred, otherwise local)
+      if (this.colabUrl) {
         return await this.transcribeWithColab(audioPath, options);
       } else {
         return await this.transcribeWithLocal(audioPath, options);
@@ -77,61 +77,6 @@ class WhisperService {
       console.error('🔴 Transcription failed:', error);
       throw new Error(`Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-  
-  // ==========================================
-  // OPENAI WHISPER API (Khuyến nghị production)
-  // ==========================================
-  
-  private async transcribeWithOpenAI(
-    audioPath: string,
-    options: TranscriptionOptions
-  ): Promise<TranscriptionResult> {
-    if (!this.openAIKey) {
-      throw new Error('OpenAI API key not configured');
-    }
-    
-    console.log('☁️  Using OpenAI Whisper API...');
-    
-    const formData = new FormData();
-    formData.append('file', fs.createReadStream(audioPath));
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'verbose_json');
-    
-    if (options.language) {
-      formData.append('language', options.language);
-    }
-    
-    const response = await axios.post(
-      'https://api.openai.com/v1/audio/transcriptions',
-      formData,
-      {
-        headers: {
-          'Authorization': `Bearer ${this.openAIKey}`,
-          ...formData.getHeaders()
-        },
-        timeout: 300000 // 5 minutes
-      }
-    );
-    
-    const data = response.data;
-    
-    // Format segments
-    const segments = (data.segments || []).map((seg: any, idx: number) => ({
-      id: idx,
-      start: seg.start,
-      end: seg.end,
-      text: seg.text.trim(),
-      confidence: seg.no_speech_prob ? 1 - seg.no_speech_prob : undefined
-    }));
-    
-    return {
-      text: data.text || '',
-      language: data.language || 'unknown',
-      duration: data.duration || 0,
-      segments,
-      confidence: undefined // OpenAI không trả về overall confidence
-    };
   }
   
   // ==========================================
@@ -150,6 +95,7 @@ class WhisperService {
     
     // Health check trước
     try {
+      console.log(`🔎 Health check: ${this.colabUrl}/health`);
       await axios.get(`${this.colabUrl}/health`, { timeout: 5000 });
     } catch (error) {
       throw new Error('Colab server not responding. Please restart your Colab notebook.');
@@ -263,20 +209,45 @@ class WhisperService {
       throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
+
+  // ==========================================
+  // YOUTUBE AUDIO DOWNLOAD (requires yt-dlp)
+  // ==========================================
+  async downloadYouTubeAudio(url: string): Promise<string> {
+    if (!url || !/^https?:\/\//.test(url)) {
+      throw new Error('Invalid YouTube URL');
+    }
+    const uploadsDir = path.resolve(__dirname, '../../uploads/audio');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    const outFileBase = `yt-${Date.now()}-${Math.round(Math.random()*1e6)}`;
+    const outFilePath = path.join(uploadsDir, `${outFileBase}.wav`);
+    // Use yt-dlp to extract audio and ffmpeg to convert to 16k mono wav
+    // Command downloads best audio and writes to temp; then convert to required format
+    const tempFile = path.join(uploadsDir, `${outFileBase}.m4a`);
+    try {
+      // Download best audio
+      await execAsync(`yt-dlp -f bestaudio -o "${tempFile}" "${url}"`);
+    } catch (e) {
+      throw new Error('yt-dlp download failed. Please install yt-dlp');
+    }
+    try {
+      // Convert to wav 16k mono for Whisper
+      await execAsync(`ffmpeg -i "${tempFile}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${outFilePath}" -y`);
+      // Cleanup temp
+      fs.existsSync(tempFile) && fs.unlinkSync(tempFile);
+    } catch (e) {
+      throw new Error('ffmpeg convert failed. Please install ffmpeg');
+    }
+    return outFilePath;
+  }
   
   // ==========================================
   // HEALTH CHECK
   // ==========================================
   
   async healthCheck(): Promise<{ status: string; provider: string; available: boolean }> {
-    if (this.useOpenAI) {
-      return {
-        status: 'ok',
-        provider: 'OpenAI',
-        available: !!this.openAIKey
-      };
-    }
-    
     if (this.colabUrl) {
       try {
         await axios.get(`${this.colabUrl}/health`, { timeout: 5000 });
@@ -309,9 +280,6 @@ class WhisperService {
   
   // Property for quick access
   get isAvailable(): boolean {
-    if (this.useOpenAI) {
-      return !!this.openAIKey;
-    }
     if (this.colabUrl) {
       return true; // Will check on actual request
     }

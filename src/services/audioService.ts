@@ -1,16 +1,23 @@
 // services/audioService.ts
-import { Language } from './../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+
+import Constants from 'expo-constants';
 
 const getApiUrl = () => {
-  if (__DEV__) {
-    if (Platform.OS === 'android') {
-      return 'http://192.168.1.180:3000/api/audio';
-    }
-    return 'http://192.168.1.180:3000/api/audio';
+  const extras = Constants.expoConfig?.extra as { API_BASE_URL?: string } | undefined;
+  let base = extras?.API_BASE_URL || 'http://192.168.1.69:3000/api';
+  // Ensure base doesn't end with /api/audio (remove trailing /audio if present)
+  base = base.replace(/\/audio\/?$/, '');
+  // Ensure base ends with /api
+  if (!base.endsWith('/api')) {
+    base = base.endsWith('/') ? `${base}api` : `${base}/api`;
   }
-  return 'https://192.168.1.180:3000/api/audio';
+  const apiUrl = `${base}/audio`;
+  if (__DEV__) {
+    console.log('[AudioService] API_BASE_URL resolved:', base);
+    console.log('[AudioService] API_URL:', apiUrl);
+  }
+  return apiUrl;
 };
 
 const API_URL = getApiUrl();
@@ -78,13 +85,12 @@ class AudioService {
     }
   ): Promise<UploadResponse> {
     try {
+      // Get auth token for authenticated uploads
       const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        throw new Error('Not authenticated. Please login.');
-      }
 
       console.log('🔵 Uploading file:', fileName);
       console.log('🔵 Selected language:', metadata?.language || 'auto');
+      console.log('🔵 Auth token:', token ? 'Present' : 'Missing');
 
       // Create FormData
       const formData = new FormData();
@@ -103,19 +109,32 @@ class AudioService {
       if (metadata?.tags) formData.append('tags', JSON.stringify(metadata.tags));
       if (metadata?.language) formData.append('language', metadata.language); // ← Thêm language vào FormData
 
+      // Build headers with optional auth
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          // Don't set Content-Type, let browser/RN set it with boundary
-        },
+        headers,
         body: formData,
       });
-
       console.log('🔵 Upload response status:', response.status);
 
-      const data = await response.json();
-      console.log('🔵 Upload response data:', data);
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+        console.log('🔵 Upload response data:', data);
+      } else {
+        const text = await response.text();
+        console.log('🟡 Non-JSON upload response:', text?.slice(0, 200));
+        if (!response.ok) {
+          throw new Error(`Server error (${response.status}). Check API_BASE_URL and /api/audio/upload.`);
+        }
+        data = { success: true };
+      }
 
       if (!data.success) {
         throw new Error(data.message || 'Upload failed');
@@ -133,27 +152,48 @@ class AudioService {
    */
   async getAudio(audioId: string): Promise<AudioDetail> {
     try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        throw new Error('Not authenticated');
+      // Public fetch: no authentication required
+      if (!audioId || audioId.trim() === '') {
+        throw new Error('Audio ID is required');
       }
 
-      const response = await fetch(`${API_URL}/${audioId}`, {
+      const url = `${API_URL}/${audioId}`;
+      if (__DEV__) {
+        console.log('[AudioService.getAudio] Requesting:', url);
+      }
+
+      const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: {},
       });
 
-      const data = await response.json();
+      if (__DEV__) {
+        console.log('[AudioService.getAudio] Response status:', response.status, response.statusText);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.log('🟡 Non-JSON getAudio response:', text?.slice(0, 200));
+        if (response.status === 404) {
+          throw new Error(`Audio not found (ID: ${audioId}). URL: ${url}`);
+        }
+        throw new Error(`Server returned non-JSON (${response.status}). URL: ${url}`);
+      }
 
       if (!data.success) {
+        if (data.message === 'Endpoint not found') {
+          throw new Error(`Endpoint not found. Check if server is running and URL is correct: ${url}`);
+        }
         throw new Error(data.message || 'Failed to get audio');
       }
 
       return data;
     } catch (error) {
-      console.error('🔴 Get audio error:', error);
+      console.error('[AudioService.getAudio] Error:', error);
       throw error;
     }
   }
@@ -209,10 +249,7 @@ class AudioService {
     limit?: number;
   }): Promise<AudioListResponse> {
     try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
+      // Public list: no authentication required
 
       const queryParams = new URLSearchParams();
       if (params?.status) queryParams.append('status', params.status);
@@ -224,12 +261,17 @@ class AudioService {
 
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: {},
       });
-
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.log('🟡 Non-JSON audio list response:', text?.slice(0, 200));
+        throw new Error(`Server returned non-JSON (${response.status}).`);
+      }
 
       if (!data.success) {
         throw new Error(data.message || 'Failed to get audio list');
@@ -247,6 +289,7 @@ class AudioService {
    */
   async deleteAudio(audioId: string): Promise<{ success: boolean; message?: string }> {
     try {
+      // Public delete still requires auth on server; keep as is or disable
       const token = await AsyncStorage.getItem('token');
       if (!token) {
         throw new Error('Not authenticated');
@@ -268,6 +311,80 @@ class AudioService {
       return data;
     } catch (error) {
       console.error('🔴 Delete audio error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Import transcript from YouTube URL
+   */
+  async importFromYouTube(
+    url: string,
+    language?: string
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    audio?: {
+      _id: string;
+      status: string;
+    };
+    transcript?: {
+      _id: string;
+    };
+  }> {
+    try {
+      // Get auth token for authenticated imports
+      const token = await AsyncStorage.getItem('token');
+
+      console.log('📺 Importing from YouTube:', url);
+      console.log('📺 Language:', language || 'auto');
+      console.log('📺 Auth token:', token ? 'Present' : 'Missing');
+
+      // Build headers with optional auth
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/youtube`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          url,
+          language: language || 'auto',
+        }),
+      });
+
+      console.log('📺 YouTube import response status:', response.status);
+
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (!response.ok) {
+        if (contentType.includes('application/json')) {
+          const errorData = await response.json();
+          throw new Error(errorData?.message || `Server error: ${response.status}`);
+        }
+        const errorText = await response.text();
+        throw new Error(`Server error (${response.status}): ${errorText.substring(0, 200)}`);
+      }
+
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Unexpected response format: ${text.substring(0, 100)}`);
+      }
+
+      const data = await response.json();
+      console.log('📺 YouTube import response:', data);
+
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to import from YouTube');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('🔴 YouTube import error:', error);
       throw error;
     }
   }

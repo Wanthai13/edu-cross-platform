@@ -2,7 +2,7 @@
 import mongoose from 'mongoose';
 
 export interface IAudio extends mongoose.Document {
-  userId: mongoose.Types.ObjectId;
+  userId?: mongoose.Types.ObjectId;
   filename: string;
   originalName: string;
   fileType: 'audio' | 'video' | 'recording';
@@ -36,7 +36,7 @@ const AudioSchema = new mongoose.Schema<IAudio>({
   userId: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User', 
-    required: true 
+    required: false 
   },
   filename: { type: String, required: true },
   originalName: { type: String, required: true },
