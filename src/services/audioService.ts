@@ -5,7 +5,7 @@ import Constants from 'expo-constants';
 
 const getApiUrl = () => {
   const extras = Constants.expoConfig?.extra as { API_BASE_URL?: string } | undefined;
-  let base = extras?.API_BASE_URL || 'http://192.168.1.69:3000/api';
+  let base = extras?.API_BASE_URL || 'http://192.168.121.227:3000/api';
   // Ensure base doesn't end with /api/audio (remove trailing /audio if present)
   base = base.replace(/\/audio\/?$/, '');
   // Ensure base ends with /api

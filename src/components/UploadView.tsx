@@ -613,97 +613,95 @@ export default function UploadView({ language = 'en', onUploadComplete }: Props)
   };
 
   const handleImportYoutube = async () => {
-    const trimmedUrl = youtubeUrl.trim();
+  const trimmedUrl = youtubeUrl.trim();
+  
+  // Validate URL
+  if (!trimmedUrl || trimmedUrl.length < 8) {
+    Alert.alert(
+      t.uploadView.errors.invalidYoutubeUrl,
+      'Please paste a valid YouTube URL.'
+    );
+    return;
+  }
+
+  if (!validateYoutubeUrl(trimmedUrl)) {
+    Alert.alert(
+      t.uploadView.errors.invalidYoutubeUrl,
+      'URL format is incorrect. Please use a valid YouTube link.'
+    );
+    return;
+  }
+
+  const videoId = extractVideoId(trimmedUrl);
+  if (!videoId) {
+    Alert.alert(
+      t.uploadView.errors.invalidYoutubeUrl,
+      'Could not extract video ID from URL.'
+    );
+    return;
+  }
+
+  try {
+    // Step 1: Start import process
+    setError(null);
+    setYoutubeLoading(true);
+    setYoutubeStep(t.uploadView.youtubeImport.validating);
     
-    // Validate URL
-    if (!trimmedUrl || trimmedUrl.length < 8) {
-      Alert.alert(
-        t.uploadView.errors.invalidYoutubeUrl,
-        'Please paste a valid YouTube URL.'
-      );
-      return;
+    console.log('📺 Importing YouTube video:', videoId);
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    setYoutubeStep(t.uploadView.youtubeImport.fetching);
+    
+    const lang = selectedLanguage === 'auto' ? undefined : selectedLanguage;
+    
+    console.log('📺 Calling audioService.importFromYouTube with language:', lang);
+    
+    // Step 2: Call YouTube import API
+    const data = await audioService.importFromYouTube(trimmedUrl, lang);
+    
+    console.log('✅ YouTube import API response:', data);
+
+    const audioId = data?.audio?._id;
+
+    if (!audioId) {
+      throw new Error('No audio ID returned from server');
     }
 
-    if (!validateYoutubeUrl(trimmedUrl)) {
-      Alert.alert(
-        t.uploadView.errors.invalidYoutubeUrl,
-        'URL format is incorrect. Please use a valid YouTube link.'
-      );
-      return;
+    // Step 3: Clear YouTube form
+    setYoutubeUrl('');
+    setYoutubeStep('');
+    setYoutubeLoading(false);
+
+    // Step 4: Switch to processing status view
+    setCurrentAudioId(audioId);
+    setStatus('pending');
+    setProcessingDetails('YouTube video imported. Waiting for transcription to complete...');
+    
+    console.log('📺 Starting to poll transcription status for:', audioId);
+    
+    // Step 5: Start polling (reuse existing logic)
+    await pollTranscriptionStatus(audioId);
+    
+  } catch (err: any) {
+    console.error('🔴 YouTube import error:', err);
+    
+    let errorMessage = err?.message || t.uploadView.errors.youtubeImportFailed;
+    
+    if (errorMessage.includes('subtitles') || errorMessage.includes('captions')) {
+      errorMessage = t.uploadView.errors.noSubtitles;
     }
-
-    const videoId = extractVideoId(trimmedUrl);
-    if (!videoId) {
-      Alert.alert(
-        t.uploadView.errors.invalidYoutubeUrl,
-        'Could not extract video ID from URL.'
-      );
-      return;
-    }
-
-    try {
-      setYoutubeLoading(true);
-      setYoutubeStep(t.uploadView.youtubeImport.validating);
-      
-      console.log('📺 Importing YouTube video:', videoId);
-
-      // Small delay for UX
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setYoutubeStep(t.uploadView.youtubeImport.fetching);
-      
-      const lang = selectedLanguage === 'auto' ? undefined : selectedLanguage;
-      
-      console.log('📺 Calling audioService.importFromYouTube with language:', lang);
-      
-      // Use audioService to call the API (works on both web and mobile)
-      const data = await audioService.importFromYouTube(trimmedUrl, lang);
-      
-      setYoutubeStep(t.uploadView.youtubeImport.processing);
-      
-      console.log('✅ YouTube import successful:', data);
-
-      const audioId = data?.audio?._id;
-
-      if (!audioId) {
-        throw new Error('No audio ID returned from server');
-      }
-
-      Alert.alert(
-        t.uploadView.success.youtubeImported,
-        `Video ID: ${videoId}\nProcessing started...`
-      );
-      
-      // Call the completion callback
-      if (onUploadComplete) {
-        // Note: We don't have fullText yet as transcription is still processing
-        // The callback will navigate to the detail page where polling will happen
-        onUploadComplete(audioId, '');
-      }
-      
-      // Reset form
-      setYoutubeUrl('');
-      setYoutubeStep('');
-      
-    } catch (err: any) {
-      console.error('🔴 YouTube import error:', err);
-      
-      let errorMessage = err?.message || t.uploadView.errors.youtubeImportFailed;
-      
-      if (errorMessage.includes('subtitles') || errorMessage.includes('captions')) {
-        errorMessage = t.uploadView.errors.noSubtitles;
-      }
-      
-      Alert.alert(
-        t.uploadView.errors.youtubeImportFailed,
-        errorMessage
-      );
-      
-      setYoutubeStep('');
-    } finally {
-      setYoutubeLoading(false);
-    }
-  };
+    
+    Alert.alert(
+      t.uploadView.errors.youtubeImportFailed,
+      errorMessage
+    );
+    
+    setYoutubeStep('');
+    setYoutubeLoading(false);
+    setStatus('idle'); // Reset to idle state on error
+  }
+};
 
   const handleClearRecording = () => {
     setHasRecording(false);

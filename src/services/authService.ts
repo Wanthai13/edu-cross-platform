@@ -5,9 +5,9 @@ import { Platform } from 'react-native';
 const getApiUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
-      return 'http://192.168.1.69:3000/api/auth';
+      return 'http://192.168.121.227:3000/api/auth';
     }
-    return 'http://192.168.1.69:3000/api/auth';
+    return 'http://192.168.121.227:3000/api/auth';
   }
   return 'https://your-production-api.com/api/auth';
 };

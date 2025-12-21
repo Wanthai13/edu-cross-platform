@@ -5,11 +5,11 @@ import { Platform } from 'react-native';
 const getApiUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
-      return 'http://192.168.1.69:3000/api/transcript';
+      return 'http://192.168.121.227:3000/api/transcript';
     }
-    return 'http://192.168.1.69:3000/api/transcript';
+    return 'http://192.168.121.227:3000/api/transcript';
   }
-  return 'https://192.168.1.69:3000/api/transcript';
+  return 'https://192.168.121.227:3000/api/transcript';
 };
 
 const API_URL = getApiUrl();

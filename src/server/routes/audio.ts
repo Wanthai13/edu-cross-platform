@@ -12,7 +12,7 @@ import Transcript from '../models/Transcript';
 
 const router = express.Router();
 
-// Optional auth middleware - extracts userId if token is present, but doesn't require it
+// Optional auth middleware
 const optionalAuthMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -24,12 +24,10 @@ const optionalAuthMiddleware = (req: express.Request, res: express.Response, nex
       console.log('🔐 Auth token valid, userId:', decoded.userId);
     } catch (error) {
       console.log('⚠️ Invalid token, proceeding without auth');
-      // Don't reject - just proceed without userId
     }
   } else {
     console.log('⚠️ No auth token provided, proceeding without auth');
   }
-  
   next();
 };
 
@@ -51,13 +49,14 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
-      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/m4a', 'audio/x-m4a', 'audio/mp4',
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm',
+      'audio/m4a', 'audio/x-m4a', 'audio/mp4',
       'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'
     ];
-
+    
     const ext = path.extname(file.originalname).toLowerCase();
     const allowedExts = ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.mp4', '.mov'];
-
+    
     if (
       allowedTypes.includes(file.mimetype) ||
       file.mimetype.startsWith('audio/') ||
@@ -80,12 +79,11 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
     }
 
     const { title, description, tags, fileType, language } = req.body;
-    const userId = (req as any).userId; // may be undefined for public uploads
+    const userId = (req as any).userId;
 
     console.log('📁 File uploaded:', req.file.originalname);
     console.log('👤 User ID:', userId || 'anonymous');
 
-    // Create audio record
     const audio = new Audio({
       userId,
       filename: req.file.filename,
@@ -97,7 +95,7 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
       title,
       description,
       tags: tags ? JSON.parse(tags) : [],
-      userSpecifiedLanguage: language || 'auto', // 'auto', 'vi', 'en', etc.
+      userSpecifiedLanguage: language || 'auto',
       status: 'pending'
     });
 
@@ -119,9 +117,9 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
     });
   } catch (error) {
     console.error('🔴 Upload error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Upload failed' 
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Upload failed'
     });
   }
 });
@@ -130,14 +128,17 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
 router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
   console.log('📺 YouTube endpoint hit!');
   console.log('   Request body:', JSON.stringify(req.body));
-  
+
   try {
     const { url, language } = req.body;
     const userId = (req as any).userId;
-    
+
     if (!url) {
       console.log('❌ URL is missing');
-      return res.status(400).json({ success: false, message: 'URL is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'URL is required'
+      });
     }
 
     console.log(`📺 Processing YouTube URL: ${url}`);
@@ -148,9 +149,9 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
     const videoId = youtubeTranscriptService.extractVideoId(url);
     if (!videoId) {
       console.log('❌ Invalid YouTube URL format');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid YouTube URL format' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid YouTube URL format'
       });
     }
 
@@ -158,8 +159,8 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
 
     // STRATEGY 1: Try to get existing subtitles/captions (FAST - 2-5 seconds)
     console.log('🔍 Attempting to fetch existing subtitles...');
-    
     let subtitleResult = null;
+    
     try {
       subtitleResult = await youtubeTranscriptService.tryGetTranscript(url, language);
     } catch (transcriptError) {
@@ -168,14 +169,14 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
 
     if (subtitleResult) {
       console.log(`✅ Found ${subtitleResult.source}! Processing...`);
-      
+
       // Create audio record (no actual file, just metadata)
       const audio = new Audio({
-        userId: (req as any).userId,
+        userId,
         filename: `youtube_${videoId}.txt`,
         originalName: `YouTube: ${url}`,
         fileType: 'youtube-transcript',
-        filePath: '', // No physical file
+        filePath: '',
         fileSize: subtitleResult.text.length,
         mimeType: 'text/plain',
         title: `YouTube: ${videoId}`,
@@ -186,6 +187,7 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
         duration: subtitleResult.duration,
         status: 'processing'
       });
+
       await audio.save();
 
       // Create transcript directly
@@ -213,6 +215,7 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
           tsv: { generated: false }
         }
       });
+
       await transcript.save();
 
       // Update audio status
@@ -227,8 +230,8 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
       return res.status(201).json({
         success: true,
         message: `Transcript imported from YouTube ${subtitleResult.source}`,
-        audio: { 
-          _id: audio._id, 
+        audio: {
+          _id: audio._id,
           status: 'completed',
           source: subtitleResult.source
         },
@@ -240,11 +243,27 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
       });
     }
 
-    // STRATEGY 2: No subtitles found - return error with helpful message
-    // Note: Whisper fallback requires yt-dlp and ffmpeg which may not be available
+    // STRATEGY 2: No subtitles found
     console.log('⚠️ No subtitles/captions found for this video');
-    
-    // Try whisper fallback if available
+
+    // Check if Whisper fallback is available
+    const ytDlpAvailable = whisperService.isYouTubeDownloadAvailable();
+
+    if (!ytDlpAvailable) {
+      console.log('❌ yt-dlp not available, cannot download audio');
+      return res.status(400).json({
+        success: false,
+        message: 'This video does not have subtitles or captions available.',
+        details: {
+          videoId,
+          reason: 'no_subtitles',
+          whisperAvailable: false,
+          suggestion: 'Please try a different video that has subtitles enabled, or install yt-dlp to enable audio download and Whisper transcription.'
+        }
+      });
+    }
+
+    // STRATEGY 3: Try Whisper fallback (if yt-dlp available)
     try {
       console.log('🔄 Attempting Whisper transcription fallback...');
       console.log('⏳ This will take several minutes. Downloading audio...');
@@ -254,7 +273,7 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
 
       // Create audio record
       const audio = new Audio({
-        userId: (req as any).userId,
+        userId,
         filename: path.basename(audioPath),
         originalName: `YouTube: ${url}`,
         fileType: 'audio',
@@ -267,6 +286,7 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
         userSpecifiedLanguage: language || 'auto',
         status: 'pending'
       });
+
       await audio.save();
 
       // Start background transcription
@@ -275,32 +295,31 @@ router.post('/youtube', optionalAuthMiddleware, async (req, res) => {
       return res.status(201).json({
         success: true,
         message: 'No subtitles available. Audio downloaded and queued for Whisper transcription (this will take several minutes)',
-        audio: { 
-          _id: audio._id, 
+        audio: {
+          _id: audio._id,
           status: 'pending',
           source: 'whisper'
         }
       });
     } catch (whisperError) {
       console.error('❌ Whisper fallback failed:', whisperError);
-      
-      // Return helpful error message
+
       return res.status(400).json({
         success: false,
-        message: 'This video does not have subtitles or captions available. Please try a different video that has subtitles enabled.',
+        message: 'Failed to download and transcribe audio from YouTube',
         details: {
           videoId,
-          reason: 'no_subtitles',
-          whisperAvailable: false
+          reason: 'whisper_failed',
+          error: whisperError instanceof Error ? whisperError.message : 'Unknown error',
+          suggestion: 'Please ensure yt-dlp and ffmpeg are properly installed, or try a video with subtitles.'
         }
       });
     }
-
   } catch (error) {
     console.error('🔴 YouTube processing error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Failed to process YouTube URL' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to process YouTube URL'
     });
   }
 });
@@ -313,7 +332,6 @@ async function processYouTubeTranscription(
 ) {
   try {
     console.log('🔄 Starting Whisper transcription for:', audioId);
-
     await Audio.findByIdAndUpdate(audioId, { status: 'processing' });
 
     const result = await whisperService.transcribe(audioPath, {
@@ -347,6 +365,7 @@ async function processYouTubeTranscription(
         tsv: { generated: false }
       }
     });
+
     await transcript.save();
 
     await Audio.findByIdAndUpdate(audioId, {
@@ -358,12 +377,11 @@ async function processYouTubeTranscription(
     });
 
     // Cleanup downloaded audio
-    await fs.unlink(audioPath).catch(err => 
+    await fs.unlink(audioPath).catch(err =>
       console.log('⚠️ Could not delete audio file:', err)
     );
 
     console.log('✅ Whisper transcription completed for:', audioId);
-
   } catch (error) {
     console.error('🔴 Whisper transcription error:', error);
     await Audio.findByIdAndUpdate(audioId, {
@@ -373,16 +391,19 @@ async function processYouTubeTranscription(
     });
   }
 }
+
 // ---------------- GET AUDIO BY ID ----------------
 router.get('/:id', async (req, res) => {
   try {
     const audio = await Audio.findById(req.params.id);
-
+    
     if (!audio) {
-      return res.status(404).json({ success: false, message: 'Audio not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Audio not found'
+      });
     }
 
-    // Get transcript if available
     let transcript = null;
     if (audio.transcriptId) {
       transcript = await Transcript.findById(audio.transcriptId);
@@ -417,7 +438,10 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('🔴 Get audio error:', error);
-    res.status(500).json({ success: false, message: 'Failed to retrieve audio' });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve audio'
+    });
   }
 });
 
@@ -425,7 +449,7 @@ router.get('/:id', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { status, fileType, page = 1, limit = 20 } = req.query;
-
+    
     const query: any = {};
     if (status) query.status = status;
     if (fileType) query.fileType = fileType;
@@ -452,7 +476,10 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('🔴 Get audios error:', error);
-    res.status(500).json({ success: false, message: 'Failed to retrieve audios' });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve audios'
+    });
   }
 });
 
@@ -460,9 +487,12 @@ router.get('/', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const audio = await Audio.findById(req.params.id);
-
+    
     if (!audio) {
-      return res.status(404).json({ success: false, message: 'Audio not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Audio not found'
+      });
     }
 
     // Delete transcript if exists
@@ -471,31 +501,35 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Delete file from disk
-    await fs.unlink(audio.filePath).catch(err => 
+    await fs.unlink(audio.filePath).catch(err =>
       console.log('⚠️ Could not delete file:', err)
     );
 
     // Delete from database
     await Audio.deleteOne({ _id: audio._id });
 
-    res.json({ success: true, message: 'Audio deleted successfully' });
+    res.json({
+      success: true,
+      message: 'Audio deleted successfully'
+    });
   } catch (error) {
     console.error('🔴 Delete audio error:', error);
-    res.status(500).json({ success: false, message: 'Failed to delete audio' });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete audio'
+    });
   }
 });
 
 // ---------------- BACKGROUND PROCESSING ----------------
 async function processTranscription(
-  audioId: string, 
-  filePath: string, 
+  audioId: string,
+  filePath: string,
   mimeType: string,
   userLanguage?: string
 ) {
   try {
     console.log('🔄 Processing transcription for:', audioId);
-
-    // Update status to processing
     await Audio.findByIdAndUpdate(audioId, { status: 'processing' });
 
     let audioPath = filePath;
@@ -511,7 +545,6 @@ async function processTranscription(
       language: userLanguage && userLanguage !== 'auto' ? userLanguage : undefined
     });
 
-    // Get audio document to get userId
     const audio = await Audio.findById(audioId);
     if (!audio) throw new Error('Audio not found');
 
@@ -525,7 +558,7 @@ async function processTranscription(
     // Create transcript document
     const transcript = new Transcript({
       audioId: audio._id,
-      userId: audio.userId, // This will be undefined for public uploads, which is OK now
+      userId: audio.userId,
       fullText: result.text,
       language: result.language,
       detectedLanguage: result.language,
@@ -539,7 +572,7 @@ async function processTranscription(
         isEdited: false,
         isHighlighted: false
       })),
-      keywords: [], // Will be populated later by keyword extraction
+      keywords: [],
       exportFormats: {
         srt: { generated: false },
         vtt: { generated: false },
@@ -549,6 +582,7 @@ async function processTranscription(
     });
 
     await transcript.save();
+
     console.log('✅ Transcript saved:', {
       transcriptId: transcript._id,
       audioId: audio._id,
@@ -560,35 +594,24 @@ async function processTranscription(
     });
 
     // Update audio with transcript reference
-    const updatedAudio = await Audio.findByIdAndUpdate(audioId, {
+    await Audio.findByIdAndUpdate(audioId, {
       status: 'completed',
       language: result.language,
       duration: result.duration,
       transcriptId: transcript._id,
       updatedAt: new Date()
-    }, { new: true });
-    
-    console.log('✅ Audio updated:', {
-      audioId,
-      status: 'completed',
-      transcriptId: transcript._id,
-      userId: audio.userId,
-      userIdType: typeof audio.userId,
-      userIdString: audio.userId?.toString()
     });
 
     // Clean up extracted audio if it was created
     if (audioPath !== filePath) {
-      await fs.unlink(audioPath).catch(err => 
+      await fs.unlink(audioPath).catch(err =>
         console.log('⚠️ Could not delete extracted audio:', err)
       );
     }
 
     console.log('✅ Transcription completed for:', audioId, 'Transcript ID:', transcript._id);
-
   } catch (error) {
     console.error('🔴 Processing error:', error);
-
     await Audio.findByIdAndUpdate(audioId, {
       status: 'failed',
       processingError: error instanceof Error ? error.message : 'Processing failed',

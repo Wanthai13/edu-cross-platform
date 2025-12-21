@@ -9,7 +9,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 interface TranscriptionOptions {
-  language?: string; // 'vi', 'en', hoặc undefined (auto-detect)
+  language?: string; // 'vi', 'en', or undefined (auto-detect)
 }
 
 export interface TranscriptionSegment {
@@ -39,12 +39,10 @@ class WhisperService {
   // CONFIGURATION
   // ==========================================
   
-  // OpenAI support removed – only Colab or local Whisper are used now
   private colabUrl?: string;
+  private ytDlpAvailable: boolean = false;
   
   constructor() {
-    // By default prefer Colab URL; otherwise fall back to local Whisper
-    // Use COLAB_WHISPER_URL from server .env (ngrok to Kaggle/Colab)
     this.colabUrl = process.env.COLAB_WHISPER_URL;
     
     console.log('🎙️ Whisper Service Configuration:');
@@ -52,6 +50,21 @@ class WhisperService {
 
     if (!this.colabUrl) {
       console.warn('⚠️  No Colab URL configured. Using local Whisper (may be slow).');
+    }
+    
+    // Check if yt-dlp is available
+    this.checkYtDlpAvailability();
+  }
+  
+  private async checkYtDlpAvailability(): Promise<void> {
+    try {
+      await execAsync('yt-dlp --version');
+      this.ytDlpAvailable = true;
+      console.log('✅ yt-dlp is available');
+    } catch {
+      this.ytDlpAvailable = false;
+      console.warn('⚠️  yt-dlp not found. YouTube audio download will not be available.');
+      console.warn('   Install with: pip install yt-dlp OR npm install -g yt-dlp');
     }
   }
   
@@ -67,7 +80,6 @@ class WhisperService {
       console.log(`🎙️ Transcribing: ${path.basename(audioPath)}`);
       console.log(`   Language: ${options.language || 'auto-detect'}`);
       
-      // Chọn provider dựa trên config (Colab preferred, otherwise local)
       if (this.colabUrl) {
         return await this.transcribeWithColab(audioPath, options);
       } else {
@@ -80,7 +92,7 @@ class WhisperService {
   }
   
   // ==========================================
-  // COLAB WHISPER (Khuyến nghị cho MVP/testing)
+  // COLAB WHISPER
   // ==========================================
   
   private async transcribeWithColab(
@@ -93,7 +105,6 @@ class WhisperService {
     
     console.log(`🌐 Using Colab Whisper: ${this.colabUrl}`);
     
-    // Health check trước
     try {
       console.log(`🔎 Health check: ${this.colabUrl}/health`);
       await axios.get(`${this.colabUrl}/health`, { timeout: 5000 });
@@ -113,7 +124,7 @@ class WhisperService {
       formData,
       {
         headers: formData.getHeaders(),
-        timeout: 600000, // 10 minutes (Colab có thể chậm hơn)
+        timeout: 600000,
         maxContentLength: Infinity,
         maxBodyLength: Infinity
       }
@@ -133,7 +144,7 @@ class WhisperService {
   }
   
   // ==========================================
-  // LOCAL WHISPER (Fallback, rất chậm)
+  // LOCAL WHISPER
   // ==========================================
   
   private async transcribeWithLocal(
@@ -142,36 +153,29 @@ class WhisperService {
   ): Promise<TranscriptionResult> {
     console.log('💻 Using local Whisper (this will be slow)...');
     
-    // Kiểm tra xem whisper CLI có được cài không
     try {
       await execAsync('whisper --help');
     } catch {
       throw new Error('Whisper CLI not installed. Please run: pip install openai-whisper');
     }
     
-    // Tạo output path
     const outputDir = path.dirname(audioPath);
     const outputName = path.basename(audioPath, path.extname(audioPath));
     
-    // Build command
     let command = `whisper "${audioPath}" --model base --output_dir "${outputDir}" --output_format json`;
     
     if (options.language) {
       command += ` --language ${options.language}`;
     }
     
-    // Run whisper
     console.log('⏳ Running Whisper CLI (this may take several minutes)...');
     await execAsync(command);
     
-    // Read result JSON
     const jsonPath = path.join(outputDir, `${outputName}.json`);
     const result = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     
-    // Cleanup JSON file
     fs.unlinkSync(jsonPath);
     
-    // Format segments
     const segments = (result.segments || []).map((seg: any) => ({
       id: seg.id,
       start: seg.start,
@@ -198,7 +202,6 @@ class WhisperService {
     
     console.log('🎬 Extracting audio from video...');
     
-    // Sử dụng ffmpeg để extract audio
     const command = `ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${outputPath}" -y`;
     
     try {
@@ -213,54 +216,126 @@ class WhisperService {
   // ==========================================
   // YOUTUBE AUDIO DOWNLOAD (requires yt-dlp)
   // ==========================================
+  
+  /**
+   * Check if YouTube audio download is available
+   */
+  isYouTubeDownloadAvailable(): boolean {
+    return this.ytDlpAvailable;
+  }
+  
+  /**
+   * Download audio from YouTube URL
+   * Throws error if yt-dlp is not available
+   */
   async downloadYouTubeAudio(url: string): Promise<string> {
-    if (!url || !/^https?:\/\//.test(url)) {
+    // Validate URL
+    if (!url || !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(url)) {
       throw new Error('Invalid YouTube URL');
     }
+    
+    // Check if yt-dlp is available
+    if (!this.ytDlpAvailable) {
+      throw new Error(
+        'yt-dlp is not installed. YouTube audio download is not available.\n' +
+        'Install with: pip install yt-dlp OR npm install -g yt-dlp\n' +
+        'Or use videos with existing subtitles instead.'
+      );
+    }
+    
     const uploadsDir = path.resolve(__dirname, '../../uploads/audio');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    const outFileBase = `yt-${Date.now()}-${Math.round(Math.random()*1e6)}`;
+    
+    const outFileBase = `yt-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
     const outFilePath = path.join(uploadsDir, `${outFileBase}.wav`);
-    // Use yt-dlp to extract audio and ffmpeg to convert to 16k mono wav
-    // Command downloads best audio and writes to temp; then convert to required format
-    const tempFile = path.join(uploadsDir, `${outFileBase}.m4a`);
+    const tempFile = path.join(uploadsDir, `${outFileBase}.temp`);
+    
     try {
-      // Download best audio
-      await execAsync(`yt-dlp -f bestaudio -o "${tempFile}" "${url}"`);
-    } catch (e) {
-      throw new Error('yt-dlp download failed. Please install yt-dlp');
+      console.log('📥 Downloading audio from YouTube...');
+      
+      // Download best audio using yt-dlp
+      // -f bestaudio: select best audio quality
+      // --extract-audio: extract audio from video
+      // -o: output file path
+      const downloadCmd = `yt-dlp -f bestaudio --extract-audio -o "${tempFile}.%(ext)s" "${url}"`;
+      await execAsync(downloadCmd);
+      
+      // Find the downloaded file (yt-dlp adds extension automatically)
+      const files = fs.readdirSync(uploadsDir);
+      const downloadedFile = files.find(f => f.startsWith(path.basename(tempFile)));
+      
+      if (!downloadedFile) {
+        throw new Error('Downloaded file not found');
+      }
+      
+      const downloadedPath = path.join(uploadsDir, downloadedFile);
+      
+      console.log('🔄 Converting to WAV format...');
+      
+      // Convert to 16kHz mono WAV for Whisper
+      const convertCmd = `ffmpeg -i "${downloadedPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${outFilePath}" -y`;
+      await execAsync(convertCmd);
+      
+      // Cleanup temp file
+      if (fs.existsSync(downloadedPath)) {
+        fs.unlinkSync(downloadedPath);
+      }
+      
+      console.log('✅ Audio downloaded and converted successfully');
+      return outFilePath;
+      
+    } catch (error) {
+      // Cleanup on error
+      const files = fs.readdirSync(uploadsDir);
+      files.forEach(f => {
+        if (f.startsWith(outFileBase)) {
+          try {
+            fs.unlinkSync(path.join(uploadsDir, f));
+          } catch {}
+        }
+      });
+      
+      if (error instanceof Error) {
+        if (error.message.includes('yt-dlp')) {
+          throw new Error('yt-dlp command failed. Please ensure yt-dlp is properly installed.');
+        }
+        if (error.message.includes('ffmpeg')) {
+          throw new Error('ffmpeg command failed. Please ensure ffmpeg is properly installed.');
+        }
+        throw error;
+      }
+      
+      throw new Error('Failed to download YouTube audio');
     }
-    try {
-      // Convert to wav 16k mono for Whisper
-      await execAsync(`ffmpeg -i "${tempFile}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${outFilePath}" -y`);
-      // Cleanup temp
-      fs.existsSync(tempFile) && fs.unlinkSync(tempFile);
-    } catch (e) {
-      throw new Error('ffmpeg convert failed. Please install ffmpeg');
-    }
-    return outFilePath;
   }
   
   // ==========================================
   // HEALTH CHECK
   // ==========================================
   
-  async healthCheck(): Promise<{ status: string; provider: string; available: boolean }> {
+  async healthCheck(): Promise<{ 
+    status: string; 
+    provider: string; 
+    available: boolean;
+    ytDlpAvailable?: boolean;
+  }> {
     if (this.colabUrl) {
       try {
         await axios.get(`${this.colabUrl}/health`, { timeout: 5000 });
         return {
           status: 'ok',
           provider: 'Colab',
-          available: true
+          available: true,
+          ytDlpAvailable: this.ytDlpAvailable
         };
       } catch {
         return {
           status: 'error',
           provider: 'Colab',
-          available: false
+          available: false,
+          ytDlpAvailable: this.ytDlpAvailable
         };
       }
     }
@@ -268,22 +343,21 @@ class WhisperService {
     return {
       status: 'warning',
       provider: 'Local',
-      available: true
+      available: true,
+      ytDlpAvailable: this.ytDlpAvailable
     };
   }
   
-  // Alias for backward compatibility
   async checkAvailability(): Promise<boolean> {
     const health = await this.healthCheck();
     return health.available;
   }
   
-  // Property for quick access
   get isAvailable(): boolean {
     if (this.colabUrl) {
-      return true; // Will check on actual request
+      return true;
     }
-    return true; // Local always "available" but slow
+    return true;
   }
 }
 
