@@ -12,6 +12,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.akeshop.fooddeliveryapp",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -46,7 +47,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "API_BASE_URL": "http://192.168.121.227:3000/api",
+      "API_BASE_URL": "http://10.0.14.179:3000/api",
       "GENAI_API_KEY": "AIzaSyBBKRphttfh4dqhgpACyieIL-LotBpKzig"
     }
   }

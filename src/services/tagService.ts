@@ -5,11 +5,11 @@ import { Platform } from 'react-native';
 const getApiUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
-      return 'http://192.168.121.227:3000/api/tag';
+      return 'http://10.0.14.179:3000/api/tag';
     }
-    return 'http://192.168.121.227:3000/api/tag';
+    return 'http://10.0.14.179:3000/api/tag';
   }
-  return 'https://192.168.121.227:3000/api/tag';
+  return 'https://10.0.14.179:3000/api/tag';
 };
 
 const API_URL = getApiUrl();

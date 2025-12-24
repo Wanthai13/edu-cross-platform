@@ -158,7 +158,7 @@ app.listen(Number(PORT), HOST, () => {
   console.log(`📄 Transcript API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/transcript`);
   console.log(`🏷️  Tag API: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api/tag`);
   console.log(`📚 API Docs: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api`);
-  console.log(`🌐 LAN Access: http://192.168.121.227:${PORT}/api`);
+  console.log(`🌐 LAN Access: http://10.0.14.179:${PORT}/api`);
 });
 
 // Graceful shutdown
